@@ -370,6 +370,47 @@ function roundIsResolved(round: RoundRecord) {
   return round.matchups.every((matchup) => matchup.status === "closed" && matchup.winnerEntrantId);
 }
 
+function settleRoundAfterTieResolution(bracket: BracketRecord, roundIndex: number, nowIso: string) {
+  const round = bracket.rounds[roundIndex];
+  if (!round) {
+    return false;
+  }
+
+  let hasOutstandingTie = false;
+
+  for (const matchup of round.matchups) {
+    if (matchup.winnerEntrantId) {
+      setNextRoundParticipant(bracket, roundIndex, matchup.slot, matchup.winnerEntrantId);
+      if (matchup.status !== "closed") {
+        matchup.status = "closed";
+        matchup.updatedAt = nowIso;
+      }
+      continue;
+    }
+
+    if (matchupNeedsTieBreaker(matchup)) {
+      hasOutstandingTie = true;
+      if (matchup.status !== "needs_tiebreaker") {
+        matchup.status = "needs_tiebreaker";
+        matchup.updatedAt = nowIso;
+      }
+      continue;
+    }
+
+    const winnerEntrantId = winnerFromVotes(matchup);
+    if (!winnerEntrantId) {
+      continue;
+    }
+
+    matchup.winnerEntrantId = winnerEntrantId;
+    matchup.status = "closed";
+    matchup.updatedAt = nowIso;
+    setNextRoundParticipant(bracket, roundIndex, matchup.slot, winnerEntrantId);
+  }
+
+  return !hasOutstandingTie && roundIsResolved(round);
+}
+
 function repairUnresolvedTieStates(bracket: BracketRecord, now: Date, nowIso: string) {
   const nowMs = now.getTime();
 
@@ -436,6 +477,16 @@ export function advanceBracket(bracket: BracketRecord, now = new Date()) {
 
   const nowIso = now.toISOString();
   repairUnresolvedTieStates(bracket, now, nowIso);
+  for (let roundIndex = 0; roundIndex < bracket.rounds.length; roundIndex += 1) {
+    const round = bracket.rounds[roundIndex];
+    if (round.status !== "tiebreaker") {
+      continue;
+    }
+
+    if (settleRoundAfterTieResolution(bracket, roundIndex, nowIso)) {
+      round.status = "closed";
+    }
+  }
   for (let roundIndex = 1; roundIndex < bracket.rounds.length; roundIndex += 1) {
     const round = bracket.rounds[roundIndex];
     if (!roundCanStart(bracket, roundIndex)) {
@@ -790,15 +841,19 @@ export async function resolveTieBreaker(params: {
       throw new Error("Tie-breaker winner must be one of the matchup contenders.");
     }
 
+    const nowIso = new Date().toISOString();
     targetMatchup.winnerEntrantId = params.winnerEntrantId;
     targetMatchup.status = "closed";
-    targetMatchup.updatedAt = new Date().toISOString();
+    targetMatchup.updatedAt = nowIso;
     setNextRoundParticipant(bracket, targetRoundIndex, targetMatchup.slot, params.winnerEntrantId);
 
-    if (roundIsResolved(targetRound)) {
+    const roundResolved = settleRoundAfterTieResolution(bracket, targetRoundIndex, nowIso);
+    if (roundResolved) {
       targetRound.status = "closed";
       resolveAutomaticWinners(bracket);
       advanceBracket(bracket, new Date());
+    } else {
+      targetRound.status = "tiebreaker";
     }
 
     updatedBracketId = bracket.id;
