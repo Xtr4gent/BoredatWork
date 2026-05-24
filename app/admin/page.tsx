@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 
 import { BracketClient } from "@/components/BracketClient";
 import { CreateBracketForm } from "@/components/CreateBracketForm";
@@ -130,16 +131,19 @@ export default async function AdminPage({
   searchParams: Promise<{ adminToken?: string; template?: string; section?: string }>;
 }) {
   const params = await searchParams;
-  const authorizedAdmin = params.adminToken ? await findBracketByAdminToken(params.adminToken) : null;
+  const jar = await cookies();
+  const rememberedAdminToken = jar.get("workquiz_admin_token")?.value;
+  const effectiveAdminToken = params.adminToken ?? rememberedAdminToken;
+  const authorizedAdmin = effectiveAdminToken ? await findBracketByAdminToken(effectiveAdminToken) : null;
   const templateBracket =
     authorizedAdmin && params.template ? await findBracketById(params.template) : null;
 
-  if (params.adminToken && authorizedAdmin && !params.template) {
-    const snapshot = await buildAdminSnapshot(authorizedAdmin, params.adminToken);
+  if (effectiveAdminToken && authorizedAdmin && !params.template) {
+    const snapshot = await buildAdminSnapshot(authorizedAdmin, effectiveAdminToken);
 
     return (
       <BracketClient
-        adminToken={params.adminToken}
+        adminToken={effectiveAdminToken}
         initialSnapshot={snapshot}
         mode="admin"
         token={authorizedAdmin.publicToken}

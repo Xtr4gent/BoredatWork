@@ -772,57 +772,55 @@ export function BracketClient({
                 <span className="bw-tag bw-tag-coral">{pendingRosterCount} pending</span>
               </div>
             </div>
-            <div className="bw-roster-inspector">
-              <div className="bw-roster-inspector-list">
-                {rosterInspectorStatuses.map((member) => (
-                  <button
-                    className={`bw-roster-chip bw-roster-chip-btn ${member.hasVoted ? "voted" : "pending"} ${
-                      activeInspectedRosterMemberId === member.rosterMemberId ? "selected" : ""
-                    }`}
-                    key={member.rosterMemberId}
-                    onClick={() => setInspectedRosterMemberId(member.rosterMemberId)}
-                    type="button"
-                  >
-                    <span className={`bw-chip-avatar ${member.hasVoted ? "voted-av" : "pending-av"}`}>
-                      {member.name.slice(0, 1).toUpperCase()}
-                    </span>
-                    <span className="bw-chip-name">{member.name}</span>
-                    <span className={`bw-chip-status ${member.hasVoted ? "done" : "waiting"}`}>
-                      {member.hasVoted ? "Voted" : "Pending"}
-                    </span>
-                  </button>
-                ))}
+            <div className="bw-roster-grid">
+              {rosterInspectorStatuses.map((member) => (
+                <button
+                  className={`bw-roster-chip bw-roster-chip-btn ${member.hasVoted ? "voted" : "pending"} ${
+                    activeInspectedRosterMemberId === member.rosterMemberId ? "selected" : ""
+                  }`}
+                  key={member.rosterMemberId}
+                  onClick={() => setInspectedRosterMemberId(member.rosterMemberId)}
+                  type="button"
+                >
+                  <span className={`bw-chip-avatar ${member.hasVoted ? "voted-av" : "pending-av"}`}>
+                    {member.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="bw-chip-name">{member.name}</span>
+                  <span className={`bw-chip-status ${member.hasVoted ? "done" : "waiting"}`}>
+                    {member.hasVoted ? "Voted" : "Pending"}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="bw-roster-inspector-detail">
+              <div className="bw-card-title">
+                {inspectedRosterMember ? `${inspectedRosterMember.name}'s Votes` : "Select a voter"}
               </div>
-              <div className="bw-roster-inspector-detail">
-                <div className="bw-card-title">
-                  {inspectedRosterMember ? `${inspectedRosterMember.name}'s Votes` : "Select a voter"}
-                </div>
-                {inspectedRosterMember && inspectedRoundVotes.length ? (
-                  <div className="bw-roster-vote-list">
-                    {inspectedRoundVotes.map(({ matchup, vote }) => (
-                      <div className="bw-roster-vote-item" key={matchup.id}>
-                        <div className="bw-roster-vote-matchup">{matchupTitle(matchup)}</div>
-                        <div className="bw-roster-vote-choice">
-                          {vote ? `Voted for ${vote.entrantName}` : "No vote yet"}
-                        </div>
-                        {vote ? (
-                          <button
-                            className="bw-btn bw-btn-outline"
-                            onClick={() =>
-                              clearVote(matchup.id, inspectedRosterMember.rosterMemberId, inspectedRosterMember.name)
-                            }
-                            type="button"
-                          >
-                            Clear vote
-                          </button>
-                        ) : null}
+              {inspectedRosterMember && inspectedRoundVotes.length ? (
+                <div className="bw-roster-vote-list">
+                  {inspectedRoundVotes.map(({ matchup, vote }) => (
+                    <div className="bw-roster-vote-item" key={matchup.id}>
+                      <div className="bw-roster-vote-matchup">{matchupTitle(matchup)}</div>
+                      <div className="bw-roster-vote-choice">
+                        {vote ? `Voted for ${vote.entrantName}` : "No vote yet"}
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="bw-muted">No current-round matchups to inspect yet.</p>
-                )}
-              </div>
+                      {vote ? (
+                        <button
+                          className="bw-btn bw-btn-outline"
+                          onClick={() =>
+                            clearVote(matchup.id, inspectedRosterMember.rosterMemberId, inspectedRosterMember.name)
+                          }
+                          type="button"
+                        >
+                          Clear vote
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="bw-muted">No current-round matchups to inspect yet.</p>
+              )}
             </div>
           </div>
         </section>
@@ -1146,6 +1144,14 @@ export function BracketClient({
             Bored<span>@Work</span>
           </div>
           <span className="bw-nav-badge">{isTestBracket ? "Admin Test Mode" : "Admin"}</span>
+          <div className="bw-btn-row">
+            <Link className="bw-btn bw-btn-outline" href="/admin">
+              Admin Home
+            </Link>
+            <Link className="bw-btn bw-btn-outline" href="/">
+              Public Home
+            </Link>
+          </div>
           <div className="bw-nav-tabs">
             <button
               className={`bw-nav-tab ${adminSection === "live" ? "active" : ""}`}
