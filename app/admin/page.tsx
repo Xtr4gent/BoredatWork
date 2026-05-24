@@ -100,6 +100,7 @@ function AdminCreatePortal({
                     </div>
                     <div className="bw-history-meta">
                       <div>{formatAdminDate(item.tournamentDate)}</div>
+                      <Link href={`/past/${encodeURIComponent(item.id)}`}>View bracket</Link>
                     </div>
                   </div>
                 ))

@@ -227,8 +227,9 @@ export default function LandingPageClient({
         <div className="lp-past-grid">
           {pastTopics.length ? (
             pastTopics.map((topic, index) => (
-              <div
+              <Link
                 key={topic.id}
+                href={`/past/${encodeURIComponent(topic.id)}`}
                 className="panel lp-topic-card reveal"
                 style={{ transitionDelay: `${index * 0.08}s` }}
               >
@@ -250,7 +251,7 @@ export default function LandingPageClient({
                     </span>
                   ))}
                 </div>
-              </div>
+              </Link>
             ))
           ) : (
             <div className="panel lp-topic-card reveal">

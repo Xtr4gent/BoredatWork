@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
 
 import {
@@ -111,7 +112,7 @@ export function BracketClient({
   token: string;
   adminToken?: string;
   initialSnapshot: BracketSnapshot;
-  mode: "public" | "admin";
+  mode: "public" | "admin" | "history";
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [error, setError] = useState<string | null>(null);
@@ -123,9 +124,14 @@ export function BracketClient({
     mode === "public" && !initialSnapshot.selectedRosterMemberId,
   );
   const [adminSection, setAdminSection] = useState<AdminSection>("live");
+  const [inspectedRosterMemberId, setInspectedRosterMemberId] = useState<string | null>(null);
   const hydrated = useHydrated();
 
   const refresh = useEffectEvent(async () => {
+    if (mode === "history") {
+      return;
+    }
+
     const query =
       mode === "public"
         ? `?rosterMemberId=${encodeURIComponent(selectedRosterMemberId ?? "")}`
@@ -142,6 +148,10 @@ export function BracketClient({
   });
 
   useEffect(() => {
+    if (mode === "history") {
+      return;
+    }
+
     let interval: NodeJS.Timeout | undefined;
     const scheme = window.location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${scheme}://${window.location.host}/ws?token=${token}`);
@@ -318,6 +328,33 @@ export function BracketClient({
   const pendingRosterCount = Math.max(snapshot.totalPlayers - snapshot.currentRoundUniqueVoters, 0);
   const champion = winnerName(snapshot);
   const isTestBracket = snapshot.kind === "test";
+  const rosterInspectorStatuses = snapshot.currentRoundRosterStatuses.length
+    ? snapshot.currentRoundRosterStatuses
+    : snapshot.rosterMembers.map((member) => ({
+        rosterMemberId: member.id,
+        name: member.name,
+        hasVoted: false,
+      }));
+
+  const fallbackInspectedRosterMemberId =
+    rosterInspectorStatuses.find((member) => member.hasVoted)?.rosterMemberId ??
+    rosterInspectorStatuses[0]?.rosterMemberId ??
+    null;
+  const activeInspectedRosterMemberId =
+    inspectedRosterMemberId &&
+    rosterInspectorStatuses.some((member) => member.rosterMemberId === inspectedRosterMemberId)
+      ? inspectedRosterMemberId
+      : fallbackInspectedRosterMemberId;
+  const inspectedRosterMember =
+    rosterInspectorStatuses.find((member) => member.rosterMemberId === activeInspectedRosterMemberId) ?? null;
+  const inspectedRoundVotes = (currentRound?.matchups ?? []).map((matchup) => {
+    const vote =
+      matchup.adminVotes?.find((entry) => entry.rosterMemberId === activeInspectedRosterMemberId) ?? null;
+    return {
+      matchup,
+      vote,
+    };
+  });
 
   function handleRosterSelection(nextRosterMemberId: string | null) {
     setError(null);
@@ -588,7 +625,7 @@ export function BracketClient({
                   const winnerA = matchup.winnerEntrantId && matchup.entrantA?.id === matchup.winnerEntrantId;
                   const winnerB = matchup.winnerEntrantId && matchup.entrantB?.id === matchup.winnerEntrantId;
                   const canSeeVoteCounts =
-                    mode === "admin" ||
+                    mode !== "public" ||
                     matchup.status !== "live" ||
                     !matchup.voteState.canVote ||
                     Boolean(matchup.voteState.votedEntrantId);
@@ -735,21 +772,57 @@ export function BracketClient({
                 <span className="bw-tag bw-tag-coral">{pendingRosterCount} pending</span>
               </div>
             </div>
-            <div className="bw-roster-grid">
-              {snapshot.currentRoundRosterStatuses.map((member) => (
-                <div
-                  className={`bw-roster-chip ${member.hasVoted ? "voted" : "pending"}`}
-                  key={member.rosterMemberId}
-                >
-                  <span className={`bw-chip-avatar ${member.hasVoted ? "voted-av" : "pending-av"}`}>
-                    {member.name.slice(0, 1).toUpperCase()}
-                  </span>
-                  <span className="bw-chip-name">{member.name}</span>
-                  <span className={`bw-chip-status ${member.hasVoted ? "done" : "waiting"}`}>
-                    {member.hasVoted ? "Voted" : "Pending"}
-                  </span>
+            <div className="bw-roster-inspector">
+              <div className="bw-roster-inspector-list">
+                {rosterInspectorStatuses.map((member) => (
+                  <button
+                    className={`bw-roster-chip bw-roster-chip-btn ${member.hasVoted ? "voted" : "pending"} ${
+                      activeInspectedRosterMemberId === member.rosterMemberId ? "selected" : ""
+                    }`}
+                    key={member.rosterMemberId}
+                    onClick={() => setInspectedRosterMemberId(member.rosterMemberId)}
+                    type="button"
+                  >
+                    <span className={`bw-chip-avatar ${member.hasVoted ? "voted-av" : "pending-av"}`}>
+                      {member.name.slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="bw-chip-name">{member.name}</span>
+                    <span className={`bw-chip-status ${member.hasVoted ? "done" : "waiting"}`}>
+                      {member.hasVoted ? "Voted" : "Pending"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="bw-roster-inspector-detail">
+                <div className="bw-card-title">
+                  {inspectedRosterMember ? `${inspectedRosterMember.name}'s Votes` : "Select a voter"}
                 </div>
-              ))}
+                {inspectedRosterMember && inspectedRoundVotes.length ? (
+                  <div className="bw-roster-vote-list">
+                    {inspectedRoundVotes.map(({ matchup, vote }) => (
+                      <div className="bw-roster-vote-item" key={matchup.id}>
+                        <div className="bw-roster-vote-matchup">{matchupTitle(matchup)}</div>
+                        <div className="bw-roster-vote-choice">
+                          {vote ? `Voted for ${vote.entrantName}` : "No vote yet"}
+                        </div>
+                        {vote ? (
+                          <button
+                            className="bw-btn bw-btn-outline"
+                            onClick={() =>
+                              clearVote(matchup.id, inspectedRosterMember.rosterMemberId, inspectedRosterMember.name)
+                            }
+                            type="button"
+                          >
+                            Clear vote
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="bw-muted">No current-round matchups to inspect yet.</p>
+                )}
+              </div>
             </div>
           </div>
         </section>
@@ -928,6 +1001,7 @@ export function BracketClient({
                 </div>
                 <div className="bw-history-meta">
                   <div>{formatEasternDateTime(item.tournamentDate)}</div>
+                  <a href={`/past/${encodeURIComponent(item.id)}`}>View bracket</a>
                   {reuseTemplateBase ? (
                     <a href={`${reuseTemplateBase}&template=${encodeURIComponent(item.id)}`}>
                       Reuse topic
@@ -1146,6 +1220,33 @@ export function BracketClient({
             {renderAdminSection()}
           </main>
         </div>
+      </div>
+    );
+  }
+
+  if (mode === "history") {
+    return (
+      <div className="bw-vote-app">
+        <nav className="bw-public-nav" aria-label="Tournament archive">
+          <div className="bw-nav-logo">
+            Bored<span>@Work</span>
+          </div>
+          <div className="bw-nav-topic">Past Tournament</div>
+          <Link className="bw-nav-identity" href="/">
+            Back home
+          </Link>
+        </nav>
+        <main className="bw-page">
+          <header className="bw-topic-header">
+            <div className="bw-topic-round-badge">Archive</div>
+            <h1 className="bw-topic-title">{snapshot.title}</h1>
+            <p className="bw-topic-meta">
+              Champion: {champion ?? "TBD"} · {snapshot.totalVotes} total votes
+            </p>
+            <p className="bw-topic-meta">{currentRoundBanner.body}</p>
+          </header>
+          {renderBracketBoard()}
+        </main>
       </div>
     );
   }
