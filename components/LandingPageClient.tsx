@@ -279,9 +279,6 @@ export default function LandingPageClient({
             <Link href="/voting" className="primary-button">
               {isLive ? "Cast Your Vote →" : "View Tournament →"}
             </Link>
-            <Link href="/admin" className="pill">
-              Admin Setup →
-            </Link>
           </div>
         </div>
       </section>
