@@ -1665,6 +1665,8 @@ button {
 .bw-bracket-wrap {
   overflow-x: auto;
   padding-bottom: 20px;
+  scrollbar-color: #c8f53c black;
+  scrollbar-width: thin;
 }
 
 .bw-bracket-grid {
