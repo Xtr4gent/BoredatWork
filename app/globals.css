@@ -857,7 +857,7 @@ button {
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   padding: 0.9rem 0;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(13, 13, 16, 0.9);
   backdrop-filter: blur(8px);
 }
 
@@ -887,7 +887,7 @@ button {
   font-size: 0.85rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: rgba(240, 240, 238, 0.92);
 }
 
 .lp-ticker__dot {
@@ -961,7 +961,7 @@ button {
 }
 
 .lp-topic-card__eyebrow {
-  color: var(--muted);
+  color: rgba(240, 240, 238, 0.72);
 }
 
 .lp-topic-card__topic {
@@ -996,9 +996,9 @@ button {
   font-size: 0.75rem;
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(240, 240, 238, 0.9);
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .lp-topic-card__tag--win {
