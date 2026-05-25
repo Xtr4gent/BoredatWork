@@ -72,6 +72,14 @@ function buildSearchTerm(name: string) {
   return normalizeName(name).replace(/["']/g, "");
 }
 
+function buildSerperSearchTerm(name: string, variant: "default" | "alt") {
+  const base = buildSearchTerm(name);
+  if (variant === "alt") {
+    return `${base} portrait photo`;
+  }
+  return base;
+}
+
 function parseFileTitle(title: string) {
   return title
     .replace(/^File:/i, "")
@@ -157,6 +165,7 @@ async function fetchSerperSuggestionForName(
   serperApiKey: string,
   gl: string,
   hl: string,
+  searchVariant: "default" | "alt",
 ): Promise<PhotoSuggestion> {
   try {
     const response = await fetchWithTimeout(SERPER_API, timeoutMs, fetchImpl, {
@@ -166,7 +175,7 @@ async function fetchSerperSuggestionForName(
         "X-API-KEY": serperApiKey,
       },
       body: JSON.stringify({
-        q: buildSearchTerm(name),
+        q: buildSerperSearchTerm(name, searchVariant),
         gl,
         hl,
         num: DEFAULT_SERPER_RESULTS,
@@ -245,12 +254,16 @@ async function fetchSuggestionForName(
     serperApiKey?: string | null;
     serperGl?: string;
     serperHl?: string;
+    skipCache?: boolean;
+    searchVariant?: "default" | "alt";
   },
 ): Promise<PhotoSuggestion> {
   const cacheKey = normalizeName(name).toLowerCase();
-  const cached = suggestionCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.suggestion;
+  if (!options?.skipCache) {
+    const cached = suggestionCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.suggestion;
+    }
   }
 
   const serperApiKey = options?.serperApiKey ?? process.env.SERPER_API_KEY ?? null;
@@ -262,6 +275,7 @@ async function fetchSuggestionForName(
       serperApiKey,
       options?.serperGl ?? process.env.SERPER_GL ?? "us",
       options?.serperHl ?? process.env.SERPER_HL ?? "en",
+      options?.searchVariant ?? "default",
     );
     if (serperSuggestion.status === "found") {
       suggestionCache.set(cacheKey, {
@@ -375,6 +389,8 @@ export async function suggestEntrantPhotos(
     serperApiKey?: string | null;
     serperGl?: string;
     serperHl?: string;
+    skipCache?: boolean;
+    searchVariant?: "default" | "alt";
   },
 ) {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;

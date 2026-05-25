@@ -104,6 +104,10 @@ function contenderLine(contender: EntrantInput) {
   return imageUrl ? `${name} | ${imageUrl}` : name;
 }
 
+function normalizeName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 type PhotoSuggestion = {
   name: string;
   status: "found" | "not_found" | "error";
@@ -156,6 +160,8 @@ export function CreateBracketForm({
   const [photoSuggestions, setPhotoSuggestions] = useState<PhotoSuggestion[]>([]);
   const [showPhotoReview, setShowPhotoReview] = useState(false);
   const [showAppliedPhotoPreview, setShowAppliedPhotoPreview] = useState(false);
+  const [manualPhotoUrlByName, setManualPhotoUrlByName] = useState<Record<string, string>>({});
+  const [refreshingSuggestionByName, setRefreshingSuggestionByName] = useState<Record<string, boolean>>({});
   const [directQualifierNames, setDirectQualifierNames] = useState<string[]>([]);
 
   const contenderParse = useMemo(() => {
@@ -304,14 +310,103 @@ export function CreateBracketForm({
     );
   }
 
-  function updateEntrants(next: EntrantInput[]) {
+  function setEntrantsState(
+    next: EntrantInput[],
+    options?: { clearPhotoReview?: boolean; clearAppliedPhotoPreview?: boolean },
+  ) {
     setEntrantsText(next.map(contenderLine).join("\n"));
     setPreviewSeededEntrants(seedingMode === "random" ? shufflePreview(next) : next);
     syncQualifierNames(next);
+    if (options?.clearPhotoReview) {
+      setPhotoLookupError(null);
+      setShowPhotoReview(false);
+      setPhotoSuggestions([]);
+      setManualPhotoUrlByName({});
+      setRefreshingSuggestionByName({});
+    }
+    if (options?.clearAppliedPhotoPreview) {
+      setShowAppliedPhotoPreview(false);
+    }
+  }
+
+  function updateEntrants(next: EntrantInput[]) {
+    setEntrantsState(next, {
+      clearPhotoReview: true,
+      clearAppliedPhotoPreview: true,
+    });
+  }
+
+  function suggestionNameKey(name: string) {
+    return normalizeName(name).toLowerCase();
+  }
+
+  function updateEntrantImageByName(name: string, imageUrl: string) {
+    const normalizedName = name.toLowerCase();
+    const nextEntrants = entrants.map((entrant) => {
+      if (contenderName(entrant).toLowerCase() !== normalizedName) {
+        return entrant;
+      }
+      return { name: contenderName(entrant), imageUrl };
+    });
+    setEntrantsState(nextEntrants, {
+      clearPhotoReview: false,
+      clearAppliedPhotoPreview: false,
+    });
+    setShowAppliedPhotoPreview(true);
+  }
+
+  async function fetchPhotoSuggestions(
+    names: string[],
+    options?: { skipCache?: boolean; searchVariant?: "default" | "alt" },
+  ) {
+    const response = await fetch("/api/images/wikimedia-suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        names,
+        skipCache: Boolean(options?.skipCache),
+        searchVariant: options?.searchVariant ?? "default",
+      }),
+    }).catch(() => null);
+
+    if (!response) {
+      throw new Error("Could not reach photo suggestions. Try again.");
+    }
+
+    const result = (await response.json()) as { error?: string; suggestions?: PhotoSuggestion[] };
+    if (!response.ok || !Array.isArray(result.suggestions)) {
+      throw new Error(result.error ?? "Could not fetch photo suggestions.");
+    }
+
+    return result.suggestions;
+  }
+
+  async function refreshPhotoSuggestion(name: string) {
+    const key = suggestionNameKey(name);
+    setRefreshingSuggestionByName((previous) => ({ ...previous, [key]: true }));
     setPhotoLookupError(null);
-    setShowPhotoReview(false);
-    setPhotoSuggestions([]);
-    setShowAppliedPhotoPreview(false);
+    try {
+      const [nextSuggestion] = await fetchPhotoSuggestions([name], {
+        skipCache: true,
+        searchVariant: "alt",
+      });
+      if (nextSuggestion) {
+        setPhotoSuggestions((previous) =>
+          previous.map((suggestion) =>
+            suggestionNameKey(suggestion.name) === key ? nextSuggestion : suggestion,
+          ),
+        );
+      }
+    } catch (error) {
+      setPhotoLookupError(error instanceof Error ? error.message : "Could not fetch photo suggestions.");
+    } finally {
+      setRefreshingSuggestionByName((previous) => ({ ...previous, [key]: false }));
+    }
+  }
+
+  function setManualPhotoValue(name: string, value: string) {
+    const key = suggestionNameKey(name);
+    setManualPhotoUrlByName((previous) => ({ ...previous, [key]: value }));
   }
 
   function reshufflePreview() {
@@ -323,6 +418,8 @@ export function CreateBracketForm({
     setPhotoLookupError(null);
     setShowPhotoReview(false);
     setPhotoSuggestions([]);
+    setManualPhotoUrlByName({});
+    setRefreshingSuggestionByName({});
     setShowAppliedPhotoPreview(false);
     try {
       const nextEntrants = parseContendersFromText(value);
@@ -427,30 +524,16 @@ export function CreateBracketForm({
 
     setIsPhotoLookupLoading(true);
     setPhotoLookupError(null);
-    const response = await fetch("/api/images/wikimedia-suggest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        names: missingImageEntrants.map(({ entrant }) => contenderName(entrant)),
-      }),
-    }).catch(() => null);
-
-    if (!response) {
+    try {
+      const suggestions = await fetchPhotoSuggestions(missingImageEntrants.map(({ entrant }) => contenderName(entrant)));
+      setPhotoSuggestions(suggestions);
+      setManualPhotoUrlByName({});
+      setShowPhotoReview(true);
+    } catch (error) {
+      setPhotoLookupError(error instanceof Error ? error.message : "Could not fetch photo suggestions.");
+    } finally {
       setIsPhotoLookupLoading(false);
-      setPhotoLookupError("Could not reach photo suggestions. Try again.");
-      return;
     }
-
-    const result = (await response.json()) as { error?: string; suggestions?: PhotoSuggestion[] };
-    if (!response.ok || !Array.isArray(result.suggestions)) {
-      setIsPhotoLookupLoading(false);
-      setPhotoLookupError(result.error ?? "Could not fetch photo suggestions.");
-      return;
-    }
-
-    setPhotoSuggestions(result.suggestions);
-    setShowPhotoReview(true);
-    setIsPhotoLookupLoading(false);
   }
 
   function applyPhotoSuggestions() {
@@ -496,7 +579,66 @@ export function CreateBracketForm({
     updateEntrants(nextEntrants);
     setShowPhotoReview(false);
     setPhotoSuggestions([]);
+    setManualPhotoUrlByName({});
+    setRefreshingSuggestionByName({});
     setShowAppliedPhotoPreview(true);
+  }
+
+  function renderSuggestionActions(suggestion: PhotoSuggestion, style: "admin" | "setup") {
+    const key = suggestionNameKey(suggestion.name);
+    const manualUrl = manualPhotoUrlByName[key] ?? "";
+    const isRefreshing = Boolean(refreshingSuggestionByName[key]);
+    const hasFoundImage = suggestion.status === "found" && Boolean(suggestion.imageUrl);
+    const applyButtonClass = style === "admin" ? "bw-time-btn sel" : "pill active";
+    const secondaryButtonClass = style === "admin" ? "bw-time-btn" : "pill";
+    const inputClass = style === "admin" ? "bw-photo-manual-input" : "photo-manual-input";
+
+    return (
+      <div className={style === "admin" ? "bw-photo-suggestion-actions" : "photo-suggestion-actions"}>
+        {hasFoundImage ? (
+          <>
+            <a href={suggestion.sourcePageUrl ?? suggestion.imageUrl} rel="noreferrer" target="_blank">
+              Preview
+            </a>
+            <button
+              className={applyButtonClass}
+              onClick={() => updateEntrantImageByName(suggestion.name, suggestion.imageUrl ?? "")}
+              type="button"
+            >
+              Use this
+            </button>
+          </>
+        ) : (
+          <span className={style === "admin" ? "bw-card-label" : "muted"}>
+            {suggestion.status === "error" ? "Error" : "No match"}
+          </span>
+        )}
+        <button
+          className={secondaryButtonClass}
+          disabled={isRefreshing}
+          onClick={() => refreshPhotoSuggestion(suggestion.name)}
+          type="button"
+        >
+          {isRefreshing ? "Searching..." : "Find another"}
+        </button>
+        <div className={style === "admin" ? "bw-photo-manual-row" : "photo-manual-row"}>
+          <input
+            className={inputClass}
+            onChange={(event) => setManualPhotoValue(suggestion.name, event.target.value)}
+            placeholder="Paste image URL"
+            value={manualUrl}
+          />
+          <button
+            className={secondaryButtonClass}
+            disabled={!manualUrl.trim()}
+            onClick={() => updateEntrantImageByName(suggestion.name, manualUrl.trim())}
+            type="button"
+          >
+            Save URL
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const foundPhotoSuggestions = photoSuggestions.filter((suggestion) => suggestion.status === "found");
@@ -595,13 +737,15 @@ export function CreateBracketForm({
                       <strong>{suggestion.name}</strong>
                       <small>{suggestion.reason}</small>
                     </div>
-                    {suggestion.status === "found" && suggestion.imageUrl ? (
-                      <a href={suggestion.sourcePageUrl ?? suggestion.imageUrl} rel="noreferrer" target="_blank">
-                        Preview
-                      </a>
-                    ) : (
-                      <span>{suggestion.status === "error" ? "Error" : "No match"}</span>
-                    )}
+                    <div className="bw-photo-suggestion-content">
+                      {suggestion.status === "found" && suggestion.imageUrl ? (
+                        <span
+                          className="bw-photo-suggestion-thumb"
+                          style={{ backgroundImage: `url("${suggestion.thumbnailUrl ?? suggestion.imageUrl}")` }}
+                        />
+                      ) : null}
+                      {renderSuggestionActions(suggestion, "admin")}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -809,13 +953,15 @@ export function CreateBracketForm({
                     {suggestion.status === "found" ? ` • confidence ${(suggestion.confidence * 100).toFixed(0)}%` : ""}
                   </span>
                 </div>
-                {suggestion.status === "found" && suggestion.imageUrl ? (
-                  <a href={suggestion.sourcePageUrl ?? suggestion.imageUrl} rel="noreferrer" target="_blank">
-                    Preview
-                  </a>
-                ) : (
-                  <span className="muted">{suggestion.status === "error" ? "Error" : "No match"}</span>
-                )}
+                <div className="photo-suggestion-content">
+                  {suggestion.status === "found" && suggestion.imageUrl ? (
+                    <span
+                      className="photo-suggestion-thumb"
+                      style={{ backgroundImage: `url("${suggestion.thumbnailUrl ?? suggestion.imageUrl}")` }}
+                    />
+                  ) : null}
+                  {renderSuggestionActions(suggestion, "setup")}
+                </div>
               </article>
             ))}
           </div>

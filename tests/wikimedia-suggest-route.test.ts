@@ -63,3 +63,54 @@ test("wikimedia suggest route returns per-name suggestions", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("wikimedia suggest route accepts retry options", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        query: {
+          pages: {
+            "1": {
+              title: "File:Bob Example.jpg",
+              imageinfo: [
+                {
+                  url: "https://upload.wikimedia.org/bob.jpg",
+                  thumburl: "https://upload.wikimedia.org/bob-thumb.jpg",
+                  descriptionurl: "https://commons.wikimedia.org/wiki/File:Bob_Example.jpg",
+                },
+              ],
+            },
+          },
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    )) as typeof fetch;
+
+  try {
+    const response = await suggestRoute(
+      new Request("http://localhost/api/images/wikimedia-suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          names: ["Bob Example"],
+          skipCache: true,
+          searchVariant: "alt",
+        }),
+      }),
+    );
+
+    assert.equal(response.status, 200);
+    const payload = (await response.json()) as {
+      suggestions: Array<{ status: string; imageUrl?: string }>;
+    };
+    assert.equal(payload.suggestions.length, 1);
+    assert.equal(payload.suggestions[0].status, "found");
+    assert.equal(payload.suggestions[0].imageUrl, "https://upload.wikimedia.org/bob.jpg");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

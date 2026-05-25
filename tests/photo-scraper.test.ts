@@ -220,3 +220,49 @@ test("suggestEntrantPhotos rejects junk Serper title hints and falls back", asyn
   assert.equal(result.status, "found");
   assert.equal(result.imageUrl, "https://upload.wikimedia.org/taylor-filtered-fallback.jpg");
 });
+
+test("suggestEntrantPhotos can bypass cache for a fresh retry", async () => {
+  let serperCalls = 0;
+  const fakeFetch: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("google.serper.dev")) {
+      serperCalls += 1;
+      return new Response(
+        JSON.stringify({
+          images: [
+            {
+              imageUrl: `https://images.example.com/retry-${serperCalls}.jpg`,
+              title: "Taylor Swift Retry portrait",
+              source: "Photo Desk",
+              link: "https://photos.example.com/taylor",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    return new Response(JSON.stringify({ query: { pages: {} } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const [first] = await suggestEntrantPhotos(["Taylor Swift Retry"], {
+    fetchImpl: fakeFetch,
+    serperApiKey: "test-key",
+  });
+  const [second] = await suggestEntrantPhotos(["Taylor Swift Retry"], {
+    fetchImpl: fakeFetch,
+    serperApiKey: "test-key",
+  });
+  const [forcedRefresh] = await suggestEntrantPhotos(["Taylor Swift Retry"], {
+    fetchImpl: fakeFetch,
+    serperApiKey: "test-key",
+    skipCache: true,
+  });
+
+  assert.equal(first.imageUrl, "https://images.example.com/retry-1.jpg");
+  assert.equal(second.imageUrl, "https://images.example.com/retry-1.jpg");
+  assert.equal(forcedRefresh.imageUrl, "https://images.example.com/retry-2.jpg");
+});

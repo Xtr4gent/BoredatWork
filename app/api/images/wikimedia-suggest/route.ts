@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import { suggestEntrantPhotos } from "@/lib/workquiz/photo-scraper";
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as { names?: string[] };
+  const body = (await request.json()) as {
+    names?: string[];
+    skipCache?: boolean;
+    searchVariant?: "default" | "alt";
+  };
   if (!Array.isArray(body.names)) {
     return NextResponse.json({ error: "Names must be an array." }, { status: 400 });
   }
@@ -17,6 +21,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Too many names in one request." }, { status: 400 });
   }
 
-  const suggestions = await suggestEntrantPhotos(names);
+  const suggestions = await suggestEntrantPhotos(names, {
+    skipCache: Boolean(body.skipCache),
+    searchVariant: body.searchVariant === "alt" ? "alt" : "default",
+  });
   return NextResponse.json({ suggestions });
 }
