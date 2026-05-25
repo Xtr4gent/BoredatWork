@@ -383,6 +383,35 @@ button {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.photo-lookup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: -0.25rem;
+}
+
+.photo-lookup-panel {
+  border: 1px dashed rgba(29, 35, 50, 0.22);
+  border-radius: 12px;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.photo-lookup-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.photo-lookup-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  border: 1px solid rgba(29, 35, 50, 0.16);
+  border-radius: 9px;
+  padding: 0.65rem 0.75rem;
+}
+
 .preview-summary {
   display: flex;
   justify-content: space-between;
@@ -2370,6 +2399,62 @@ button {
 
 .bw-contender-preview {
   margin-top: 4px;
+}
+
+.bw-photo-lookup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.bw-photo-lookup-panel {
+  border: 1px solid var(--bw-border);
+  border-radius: 10px;
+  background: var(--bw-bg2);
+  padding: 10px;
+  margin-bottom: 14px;
+}
+
+.bw-photo-lookup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.bw-photo-lookup-header strong {
+  color: var(--bw-white);
+  font-size: 12px;
+}
+
+.bw-photo-lookup-list {
+  display: grid;
+  gap: 6px;
+}
+
+.bw-photo-lookup-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--bw-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.bw-photo-lookup-item small {
+  display: block;
+  color: var(--bw-muted);
+  margin-top: 2px;
+}
+
+.bw-photo-lookup-item a {
+  color: var(--bw-lime);
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .bw-contender-chips {

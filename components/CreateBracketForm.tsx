@@ -104,6 +104,16 @@ function contenderLine(contender: EntrantInput) {
   return imageUrl ? `${name} | ${imageUrl}` : name;
 }
 
+type PhotoSuggestion = {
+  name: string;
+  status: "found" | "not_found" | "error";
+  imageUrl?: string;
+  thumbnailUrl?: string;
+  sourcePageUrl?: string;
+  confidence: number;
+  reason: string;
+};
+
 export function CreateBracketForm({
   initialTemplate,
   variant = "setup",
@@ -141,6 +151,10 @@ export function CreateBracketForm({
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [isStorageReady, setIsStorageReady] = useState(Boolean(initialTemplate));
+  const [isPhotoLookupLoading, setIsPhotoLookupLoading] = useState(false);
+  const [photoLookupError, setPhotoLookupError] = useState<string | null>(null);
+  const [photoSuggestions, setPhotoSuggestions] = useState<PhotoSuggestion[]>([]);
+  const [showPhotoReview, setShowPhotoReview] = useState(false);
 
   const contenderParse = useMemo(() => {
     try {
@@ -271,6 +285,9 @@ export function CreateBracketForm({
   function updateEntrants(next: EntrantInput[]) {
     setEntrantsText(next.map(contenderLine).join("\n"));
     setPreviewSeededEntrants(seedingMode === "random" ? shufflePreview(next) : next);
+    setPhotoLookupError(null);
+    setShowPhotoReview(false);
+    setPhotoSuggestions([]);
   }
 
   function reshufflePreview() {
@@ -279,6 +296,9 @@ export function CreateBracketForm({
 
   function handleEntrantsTextChange(value: string) {
     setEntrantsText(value);
+    setPhotoLookupError(null);
+    setShowPhotoReview(false);
+    setPhotoSuggestions([]);
     try {
       const nextEntrants = parseContendersFromText(value);
       setPreviewSeededEntrants(seedingMode === "random" ? shufflePreview(nextEntrants) : nextEntrants);
@@ -356,6 +376,93 @@ export function CreateBracketForm({
     });
   }
 
+  async function handlePhotoLookup() {
+    const missingImageEntrants = entrants
+      .map((entrant, index) => ({ entrant, index }))
+      .filter(({ entrant }) => !contenderImageUrl(entrant));
+
+    if (!missingImageEntrants.length) {
+      setPhotoLookupError("Every contender already has an image URL.");
+      setShowPhotoReview(false);
+      setPhotoSuggestions([]);
+      return;
+    }
+
+    setIsPhotoLookupLoading(true);
+    setPhotoLookupError(null);
+    const response = await fetch("/api/images/wikimedia-suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        names: missingImageEntrants.map(({ entrant }) => contenderName(entrant)),
+      }),
+    }).catch(() => null);
+
+    if (!response) {
+      setIsPhotoLookupLoading(false);
+      setPhotoLookupError("Could not reach Wikimedia suggestions. Try again.");
+      return;
+    }
+
+    const result = (await response.json()) as { error?: string; suggestions?: PhotoSuggestion[] };
+    if (!response.ok || !Array.isArray(result.suggestions)) {
+      setIsPhotoLookupLoading(false);
+      setPhotoLookupError(result.error ?? "Could not fetch photo suggestions.");
+      return;
+    }
+
+    setPhotoSuggestions(result.suggestions);
+    setShowPhotoReview(true);
+    setIsPhotoLookupLoading(false);
+  }
+
+  function applyPhotoSuggestions() {
+    if (!photoSuggestions.length) {
+      return;
+    }
+
+    const missingImageIndexes = entrants
+      .map((entrant, index) => ({ entrant, index }))
+      .filter(({ entrant }) => !contenderImageUrl(entrant))
+      .map(({ index }) => index);
+
+    const imageByEntrantIndex = new Map<number, string>();
+    photoSuggestions.forEach((suggestion, suggestionIndex) => {
+      const entrantIndex = missingImageIndexes[suggestionIndex];
+      if (
+        typeof entrantIndex === "number" &&
+        suggestion.status === "found" &&
+        typeof suggestion.imageUrl === "string" &&
+        suggestion.imageUrl
+      ) {
+        imageByEntrantIndex.set(entrantIndex, suggestion.imageUrl);
+      }
+    });
+
+    const nextEntrants = entrants.map((entrant, entrantIndex) => {
+      const existingImage = contenderImageUrl(entrant);
+      if (existingImage) {
+        return entrant;
+      }
+
+      const suggestedImageUrl = imageByEntrantIndex.get(entrantIndex);
+      if (!suggestedImageUrl) {
+        return entrant;
+      }
+
+      return {
+        name: contenderName(entrant),
+        imageUrl: suggestedImageUrl,
+      } satisfies EntrantInput;
+    });
+
+    updateEntrants(nextEntrants);
+    setShowPhotoReview(false);
+    setPhotoSuggestions([]);
+  }
+
+  const foundPhotoSuggestions = photoSuggestions.filter((suggestion) => suggestion.status === "found");
+
   if (variant === "admin") {
     return (
       <form action={handleSubmit} className="bw-create-form">
@@ -426,6 +533,42 @@ export function CreateBracketForm({
               <code>Name | https://image-url</code>.
             </small>
           </label>
+          <div className="bw-photo-lookup-actions">
+            <button className="bw-time-btn" disabled={isPhotoLookupLoading || !!contenderParse.error} onClick={handlePhotoLookup} type="button">
+              {isPhotoLookupLoading ? "Finding photos..." : "Auto-find photos (Wikimedia)"}
+            </button>
+            {showPhotoReview && foundPhotoSuggestions.length ? (
+              <button className="bw-time-btn sel" onClick={applyPhotoSuggestions} type="button">
+                Apply {foundPhotoSuggestions.length} suggestion{foundPhotoSuggestions.length === 1 ? "" : "s"}
+              </button>
+            ) : null}
+          </div>
+          {photoLookupError ? <p className="bw-error-text">{photoLookupError}</p> : null}
+          {showPhotoReview ? (
+            <div className="bw-photo-lookup-panel">
+              <div className="bw-photo-lookup-header">
+                <span className="bw-card-label">Photo suggestions</span>
+                <strong>{foundPhotoSuggestions.length} found</strong>
+              </div>
+              <div className="bw-photo-lookup-list">
+                {photoSuggestions.map((suggestion, index) => (
+                  <div className="bw-photo-lookup-item" key={`${suggestion.name}-${index}`}>
+                    <div>
+                      <strong>{suggestion.name}</strong>
+                      <small>{suggestion.reason}</small>
+                    </div>
+                    {suggestion.status === "found" && suggestion.imageUrl ? (
+                      <a href={suggestion.sourcePageUrl ?? suggestion.imageUrl} rel="noreferrer" target="_blank">
+                        Preview
+                      </a>
+                    ) : (
+                      <span>{suggestion.status === "error" ? "Error" : "No match"}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {contenderParse.error ? <p className="bw-error-text">{contenderParse.error}</p> : null}
           {entrants.length ? (
             <div className="bw-contender-preview">
@@ -549,6 +692,45 @@ export function CreateBracketForm({
         />
         <span className="muted">Add optional pictures with `Name | https://image-url`.</span>
       </label>
+      <div className="photo-lookup-actions">
+        <button className="pill" disabled={isPhotoLookupLoading || !!contenderParse.error} onClick={handlePhotoLookup} type="button">
+          {isPhotoLookupLoading ? "Finding photos..." : "Auto-find photos (Wikimedia)"}
+        </button>
+        {showPhotoReview && foundPhotoSuggestions.length ? (
+          <button className="pill active" onClick={applyPhotoSuggestions} type="button">
+            Apply {foundPhotoSuggestions.length} suggestion{foundPhotoSuggestions.length === 1 ? "" : "s"}
+          </button>
+        ) : null}
+      </div>
+      {photoLookupError ? <p className="error-text">{photoLookupError}</p> : null}
+      {showPhotoReview ? (
+        <section className="photo-lookup-panel stack-sm">
+          <div className="inline-row">
+            <span className="eyebrow">Photo Suggestions</span>
+            <strong>{foundPhotoSuggestions.length} found</strong>
+          </div>
+          <div className="photo-lookup-list">
+            {photoSuggestions.map((suggestion, index) => (
+              <article className="photo-lookup-item" key={`${suggestion.name}-${index}`}>
+                <div className="stack-sm">
+                  <strong>{suggestion.name}</strong>
+                  <span className="muted">
+                    {suggestion.reason}
+                    {suggestion.status === "found" ? ` • confidence ${(suggestion.confidence * 100).toFixed(0)}%` : ""}
+                  </span>
+                </div>
+                {suggestion.status === "found" && suggestion.imageUrl ? (
+                  <a href={suggestion.sourcePageUrl ?? suggestion.imageUrl} rel="noreferrer" target="_blank">
+                    Preview
+                  </a>
+                ) : (
+                  <span className="muted">{suggestion.status === "error" ? "Error" : "No match"}</span>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {contenderParse.error ? <p className="error-text">{contenderParse.error}</p> : null}
 
       <label className="field">
