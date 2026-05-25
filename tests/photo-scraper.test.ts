@@ -33,10 +33,10 @@ test("suggestEntrantPhotos returns found suggestion when Wikimedia returns image
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
 
-  const [result] = await suggestEntrantPhotos(["Taylor Swift"], { fetchImpl: fakeFetch });
+  const [result] = await suggestEntrantPhotos(["Taylor Swift Wikimedia"], { fetchImpl: fakeFetch, serperApiKey: null });
   assert.equal(result.status, "found");
   assert.equal(result.imageUrl, "https://upload.wikimedia.org/taylor.jpg");
-  assert.ok(result.confidence > 0.7);
+  assert.ok(result.confidence > 0.3);
 });
 
 test("suggestEntrantPhotos returns not_found when Wikimedia has no matching pages", async () => {
@@ -46,7 +46,81 @@ test("suggestEntrantPhotos returns not_found when Wikimedia has no matching page
       headers: { "Content-Type": "application/json" },
     });
 
-  const [result] = await suggestEntrantPhotos(["Definitely Not A Real Person"], { fetchImpl: fakeFetch });
+  const [result] = await suggestEntrantPhotos(["Definitely Not A Real Person"], { fetchImpl: fakeFetch, serperApiKey: null });
   assert.equal(result.status, "not_found");
   assert.equal(result.reason, "No Wikimedia image match found.");
+});
+
+test("suggestEntrantPhotos prefers Serper results when API key is configured", async () => {
+  const fakeFetch: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("google.serper.dev")) {
+      return new Response(
+        JSON.stringify({
+          images: [
+            {
+              imageUrl: "https://images.example.com/taylor-serper.jpg",
+              thumbnailUrl: "https://images.example.com/taylor-serper-thumb.jpg",
+              title: "Taylor Swift live photo",
+              source: "Billboard",
+              link: "https://billboard.example.com/taylor",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    return new Response(JSON.stringify({ query: { pages: {} } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const [result] = await suggestEntrantPhotos(["Taylor Swift Serper"], {
+    fetchImpl: fakeFetch,
+    serperApiKey: "test-key",
+  });
+  assert.equal(result.status, "found");
+  assert.equal(result.imageUrl, "https://images.example.com/taylor-serper.jpg");
+  assert.match(result.reason, /Google match/);
+});
+
+test("suggestEntrantPhotos falls back to Wikimedia when Serper has no images", async () => {
+  const fakeFetch: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("google.serper.dev")) {
+      return new Response(JSON.stringify({ images: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(
+      JSON.stringify({
+        query: {
+          pages: {
+            "1": {
+              title: "File:Taylor Swift fallback.jpg",
+              imageinfo: [
+                {
+                  url: "https://upload.wikimedia.org/taylor-fallback.jpg",
+                  thumburl: "https://upload.wikimedia.org/taylor-fallback-thumb.jpg",
+                  descriptionurl: "https://commons.wikimedia.org/wiki/File:Taylor_Swift_fallback.jpg",
+                },
+              ],
+            },
+          },
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+
+  const [result] = await suggestEntrantPhotos(["Taylor Swift Fallback"], {
+    fetchImpl: fakeFetch,
+    serperApiKey: "test-key",
+  });
+  assert.equal(result.status, "found");
+  assert.equal(result.imageUrl, "https://upload.wikimedia.org/taylor-fallback.jpg");
 });

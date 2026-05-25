@@ -423,7 +423,7 @@ export function CreateBracketForm({
 
     if (!response) {
       setIsPhotoLookupLoading(false);
-      setPhotoLookupError("Could not reach Wikimedia suggestions. Try again.");
+      setPhotoLookupError("Could not reach photo suggestions. Try again.");
       return;
     }
 
@@ -558,7 +558,7 @@ export function CreateBracketForm({
           </label>
           <div className="bw-photo-lookup-actions">
             <button className="bw-time-btn" disabled={isPhotoLookupLoading || !!contenderParse.error} onClick={handlePhotoLookup} type="button">
-              {isPhotoLookupLoading ? "Finding photos..." : "Auto-find photos (Wikimedia)"}
+              {isPhotoLookupLoading ? "Finding photos..." : "Auto-find photos (Google)"}
             </button>
             {showPhotoReview && foundPhotoSuggestions.length ? (
               <button className="bw-time-btn sel" onClick={applyPhotoSuggestions} type="button">
@@ -741,7 +741,7 @@ export function CreateBracketForm({
       </label>
       <div className="photo-lookup-actions">
         <button className="pill" disabled={isPhotoLookupLoading || !!contenderParse.error} onClick={handlePhotoLookup} type="button">
-          {isPhotoLookupLoading ? "Finding photos..." : "Auto-find photos (Wikimedia)"}
+          {isPhotoLookupLoading ? "Finding photos..." : "Auto-find photos (Google)"}
         </button>
         {showPhotoReview && foundPhotoSuggestions.length ? (
           <button className="pill active" onClick={applyPhotoSuggestions} type="button">

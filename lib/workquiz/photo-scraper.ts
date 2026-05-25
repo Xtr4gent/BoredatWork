@@ -1,7 +1,9 @@
 const WIKIMEDIA_API = "https://commons.wikimedia.org/w/api.php";
+const SERPER_API = "https://google.serper.dev/images";
 const DEFAULT_TIMEOUT_MS = 4500;
 const DEFAULT_CONCURRENCY = 6;
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_SERPER_RESULTS = 5;
 
 export type PhotoSuggestionStatus = "found" | "not_found" | "error";
 
@@ -32,6 +34,18 @@ interface WikimediaQueryResponse {
   };
 }
 
+interface SerperImageResult {
+  imageUrl?: string;
+  thumbnailUrl?: string;
+  title?: string;
+  source?: string;
+  link?: string;
+}
+
+interface SerperImageResponse {
+  images?: SerperImageResult[];
+}
+
 type FetchLike = typeof fetch;
 
 const suggestionCache = new Map<string, { expiresAt: number; suggestion: PhotoSuggestion }>();
@@ -51,9 +65,9 @@ function parseFileTitle(title: string) {
     .toLowerCase();
 }
 
-export function scoreWikimediaTitleMatch(name: string, title: string) {
+function scoreTextMatch(name: string, candidateText: string) {
   const normalizedName = normalizeName(name).toLowerCase();
-  const normalizedTitle = parseFileTitle(title);
+  const normalizedCandidate = candidateText.toLowerCase();
   const nameTokens = normalizedName.split(/\s+/).filter((token) => token.length >= 2);
   if (!nameTokens.length) {
     return 0;
@@ -61,14 +75,18 @@ export function scoreWikimediaTitleMatch(name: string, title: string) {
 
   let matchedTokens = 0;
   for (const token of nameTokens) {
-    if (normalizedTitle.includes(token)) {
+    if (normalizedCandidate.includes(token)) {
       matchedTokens += 1;
     }
   }
 
   const tokenCoverage = matchedTokens / nameTokens.length;
-  const fullNameBonus = normalizedTitle.includes(normalizedName) ? 0.15 : 0;
+  const fullNameBonus = normalizedCandidate.includes(normalizedName) ? 0.15 : 0;
   return Math.min(1, tokenCoverage + fullNameBonus);
+}
+
+export function scoreWikimediaTitleMatch(name: string, title: string) {
+  return scoreTextMatch(name, parseFileTitle(title));
 }
 
 function toConfidenceLabel(score: number) {
@@ -81,13 +99,103 @@ function toConfidenceLabel(score: number) {
   return "low";
 }
 
-async function fetchWithTimeout(url: URL, timeoutMs: number, fetchImpl: FetchLike) {
+function scoreSerperResult(name: string, result: SerperImageResult) {
+  const combinedText = `${result.title ?? ""} ${result.source ?? ""}`;
+  return scoreTextMatch(name, combinedText);
+}
+
+async function fetchWithTimeout(
+  input: URL | string,
+  timeoutMs: number,
+  fetchImpl: FetchLike,
+  init?: RequestInit,
+) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetchImpl(url, { signal: controller.signal });
+    return await fetchImpl(input, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function fetchSerperSuggestionForName(
+  name: string,
+  timeoutMs: number,
+  fetchImpl: FetchLike,
+  serperApiKey: string,
+  gl: string,
+  hl: string,
+): Promise<PhotoSuggestion> {
+  try {
+    const response = await fetchWithTimeout(SERPER_API, timeoutMs, fetchImpl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-KEY": serperApiKey,
+      },
+      body: JSON.stringify({
+        q: buildSearchTerm(name),
+        gl,
+        hl,
+        num: DEFAULT_SERPER_RESULTS,
+      }),
+    });
+    if (!response.ok) {
+      return {
+        name,
+        status: "error",
+        confidence: 0,
+        reason: `Serper returned ${response.status}.`,
+      };
+    }
+
+    const data = (await response.json()) as SerperImageResponse;
+    const candidates = (data.images ?? [])
+      .map((image) => {
+        if (!image.imageUrl) {
+          return null;
+        }
+        return {
+          imageUrl: image.imageUrl,
+          thumbnailUrl: image.thumbnailUrl,
+          sourcePageUrl: image.link,
+          score: scoreSerperResult(name, image),
+        };
+      })
+      .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+      .sort((a, b) => b.score - a.score);
+
+    const best = candidates[0];
+    if (!best) {
+      return {
+        name,
+        status: "not_found",
+        confidence: 0,
+        reason: "No Google image match found.",
+      };
+    }
+
+    return {
+      name,
+      status: "found",
+      imageUrl: best.imageUrl,
+      thumbnailUrl: best.thumbnailUrl,
+      sourcePageUrl: best.sourcePageUrl,
+      confidence: Number(best.score.toFixed(2)),
+      reason: `${toConfidenceLabel(best.score)} confidence Google match`,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error && error.name === "AbortError"
+        ? "Serper request timed out."
+        : "Serper request failed.";
+    return {
+      name,
+      status: "error",
+      confidence: 0,
+      reason: message,
+    };
   }
 }
 
@@ -95,11 +203,35 @@ async function fetchSuggestionForName(
   name: string,
   timeoutMs: number,
   fetchImpl: FetchLike,
+  options?: {
+    serperApiKey?: string | null;
+    serperGl?: string;
+    serperHl?: string;
+  },
 ): Promise<PhotoSuggestion> {
   const cacheKey = normalizeName(name).toLowerCase();
   const cached = suggestionCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.suggestion;
+  }
+
+  const serperApiKey = options?.serperApiKey ?? process.env.SERPER_API_KEY ?? null;
+  if (serperApiKey) {
+    const serperSuggestion = await fetchSerperSuggestionForName(
+      name,
+      timeoutMs,
+      fetchImpl,
+      serperApiKey,
+      options?.serperGl ?? process.env.SERPER_GL ?? "us",
+      options?.serperHl ?? process.env.SERPER_HL ?? "en",
+    );
+    if (serperSuggestion.status === "found") {
+      suggestionCache.set(cacheKey, {
+        suggestion: serperSuggestion,
+        expiresAt: Date.now() + CACHE_TTL_MS,
+      });
+      return serperSuggestion;
+    }
   }
 
   const params = new URLSearchParams({
@@ -202,6 +334,9 @@ export async function suggestEntrantPhotos(
     timeoutMs?: number;
     concurrency?: number;
     fetchImpl?: FetchLike;
+    serperApiKey?: string | null;
+    serperGl?: string;
+    serperHl?: string;
   },
 ) {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -225,7 +360,7 @@ export async function suggestEntrantPhotos(
         };
         continue;
       }
-      results[currentIndex] = await fetchSuggestionForName(name, timeoutMs, fetchImpl);
+      results[currentIndex] = await fetchSuggestionForName(name, timeoutMs, fetchImpl, options);
     }
   }
 
