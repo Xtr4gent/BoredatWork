@@ -607,6 +607,34 @@ export function CreateBracketForm({
               </div>
             </div>
           ) : null}
+          {showAppliedPhotoPreview ? (
+            <div className="bw-photo-applied-preview">
+              <div className="bw-photo-applied-header">
+                <span className="bw-card-label">Applied photo preview</span>
+                <strong>
+                  {entrantsWithImages.length}/{entrants.length} with images
+                </strong>
+              </div>
+              <small>Click any tile to open the image. Edit any line above to swap a bad URL before launch.</small>
+              <div className="bw-photo-applied-grid">
+                {entrantsWithImages.map((entrant) => (
+                  <a
+                    className="bw-photo-applied-card"
+                    href={entrant.imageUrl}
+                    key={`${entrant.name}-${entrant.imageUrl}`}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <span
+                      className="bw-photo-applied-image"
+                      style={{ backgroundImage: `url("${entrant.imageUrl}")` }}
+                    />
+                    <span>{entrant.name}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {contenderParse.error ? <p className="bw-error-text">{contenderParse.error}</p> : null}
           {entrants.length >= 4 ? (
             <div className="bw-qualifier-panel">
@@ -641,34 +669,6 @@ export function CreateBracketForm({
                     {contenderName(entrant)}
                     {contenderImageUrl(entrant) ? <span className="bw-contender-chip-media">image</span> : null}
                   </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {showAppliedPhotoPreview ? (
-            <div className="bw-photo-applied-preview">
-              <div className="bw-photo-applied-header">
-                <span className="bw-card-label">Applied photo preview</span>
-                <strong>
-                  {entrantsWithImages.length}/{entrants.length} with images
-                </strong>
-              </div>
-              <small>Click any tile to open the image. Edit any line above to swap a bad URL before launch.</small>
-              <div className="bw-photo-applied-grid">
-                {entrantsWithImages.map((entrant) => (
-                  <a
-                    className="bw-photo-applied-card"
-                    href={entrant.imageUrl}
-                    key={`${entrant.name}-${entrant.imageUrl}`}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    <span
-                      className="bw-photo-applied-image"
-                      style={{ backgroundImage: `url("${entrant.imageUrl}")` }}
-                    />
-                    <span>{entrant.name}</span>
-                  </a>
                 ))}
               </div>
             </div>
