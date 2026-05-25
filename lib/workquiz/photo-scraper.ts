@@ -4,6 +4,18 @@ const DEFAULT_TIMEOUT_MS = 4500;
 const DEFAULT_CONCURRENCY = 6;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_SERPER_RESULTS = 5;
+const MIN_SERPER_SCORE = 0.55;
+const MIN_SERPER_IMAGE_DIMENSION = 200;
+const SERPER_REJECTED_TITLE_HINTS = [
+  "logo",
+  "wallpaper",
+  "meme",
+  "clipart",
+  "sticker",
+  "vector",
+  "svg",
+  "emoji",
+];
 
 export type PhotoSuggestionStatus = "found" | "not_found" | "error";
 
@@ -40,6 +52,8 @@ interface SerperImageResult {
   title?: string;
   source?: string;
   link?: string;
+  imageWidth?: number;
+  imageHeight?: number;
 }
 
 interface SerperImageResponse {
@@ -104,6 +118,23 @@ function scoreSerperResult(name: string, result: SerperImageResult) {
   return scoreTextMatch(name, combinedText);
 }
 
+function isRejectedSerperResult(result: SerperImageResult) {
+  const combinedText = `${result.title ?? ""} ${result.source ?? ""}`.toLowerCase();
+  if (SERPER_REJECTED_TITLE_HINTS.some((hint) => combinedText.includes(hint))) {
+    return true;
+  }
+
+  if (
+    typeof result.imageWidth === "number" &&
+    typeof result.imageHeight === "number" &&
+    (result.imageWidth < MIN_SERPER_IMAGE_DIMENSION || result.imageHeight < MIN_SERPER_IMAGE_DIMENSION)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 async function fetchWithTimeout(
   input: URL | string,
   timeoutMs: number,
@@ -156,11 +187,18 @@ async function fetchSerperSuggestionForName(
         if (!image.imageUrl) {
           return null;
         }
+        if (isRejectedSerperResult(image)) {
+          return null;
+        }
+        const score = scoreSerperResult(name, image);
+        if (score < MIN_SERPER_SCORE) {
+          return null;
+        }
         return {
           imageUrl: image.imageUrl,
           thumbnailUrl: image.thumbnailUrl,
           sourcePageUrl: image.link,
-          score: scoreSerperResult(name, image),
+          score,
         };
       })
       .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))

@@ -124,3 +124,99 @@ test("suggestEntrantPhotos falls back to Wikimedia when Serper has no images", a
   assert.equal(result.status, "found");
   assert.equal(result.imageUrl, "https://upload.wikimedia.org/taylor-fallback.jpg");
 });
+
+test("suggestEntrantPhotos falls back when Serper match confidence is too low", async () => {
+  const fakeFetch: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("google.serper.dev")) {
+      return new Response(
+        JSON.stringify({
+          images: [
+            {
+              imageUrl: "https://images.example.com/wrong-photo.jpg",
+              title: "Cute Golden Retriever Puppy",
+              source: "Pet Gallery",
+              link: "https://pets.example.com/puppy",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        query: {
+          pages: {
+            "1": {
+              title: "File:Taylor Swift fallback.jpg",
+              imageinfo: [
+                {
+                  url: "https://upload.wikimedia.org/taylor-fallback.jpg",
+                  thumburl: "https://upload.wikimedia.org/taylor-fallback-thumb.jpg",
+                  descriptionurl: "https://commons.wikimedia.org/wiki/File:Taylor_Swift_fallback.jpg",
+                },
+              ],
+            },
+          },
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+
+  const [result] = await suggestEntrantPhotos(["Taylor Swift"], {
+    fetchImpl: fakeFetch,
+    serperApiKey: "test-key",
+  });
+  assert.equal(result.status, "found");
+  assert.equal(result.imageUrl, "https://upload.wikimedia.org/taylor-fallback.jpg");
+});
+
+test("suggestEntrantPhotos rejects junk Serper title hints and falls back", async () => {
+  const fakeFetch: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("google.serper.dev")) {
+      return new Response(
+        JSON.stringify({
+          images: [
+            {
+              imageUrl: "https://images.example.com/taylor-wallpaper.jpg",
+              title: "Taylor Swift wallpaper 4k",
+              source: "Wallpaper Hub",
+              link: "https://wallpapers.example.com/taylor",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        query: {
+          pages: {
+            "1": {
+              title: "File:Taylor Swift Filtered fallback.jpg",
+              imageinfo: [
+                {
+                  url: "https://upload.wikimedia.org/taylor-filtered-fallback.jpg",
+                  thumburl: "https://upload.wikimedia.org/taylor-filtered-fallback-thumb.jpg",
+                  descriptionurl: "https://commons.wikimedia.org/wiki/File:Taylor_Swift_fallback.jpg",
+                },
+              ],
+            },
+          },
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+
+  const [result] = await suggestEntrantPhotos(["Taylor Swift Filtered"], {
+    fetchImpl: fakeFetch,
+    serperApiKey: "test-key",
+  });
+  assert.equal(result.status, "found");
+  assert.equal(result.imageUrl, "https://upload.wikimedia.org/taylor-filtered-fallback.jpg");
+});
