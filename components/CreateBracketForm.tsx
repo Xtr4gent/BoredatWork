@@ -155,6 +155,7 @@ export function CreateBracketForm({
   const [photoLookupError, setPhotoLookupError] = useState<string | null>(null);
   const [photoSuggestions, setPhotoSuggestions] = useState<PhotoSuggestion[]>([]);
   const [showPhotoReview, setShowPhotoReview] = useState(false);
+  const [showAppliedPhotoPreview, setShowAppliedPhotoPreview] = useState(false);
   const [directQualifierNames, setDirectQualifierNames] = useState<string[]>([]);
 
   const contenderParse = useMemo(() => {
@@ -169,6 +170,17 @@ export function CreateBracketForm({
   }, [entrantsText]);
   const entrants = contenderParse.entrants;
   const entrantNames = useMemo(() => entrants.map((entrant) => contenderName(entrant)), [entrants]);
+  const entrantsWithImages = useMemo(
+    () =>
+      entrants.flatMap((entrant) => {
+        const imageUrl = contenderImageUrl(entrant);
+        if (!imageUrl) {
+          return [];
+        }
+        return [{ name: contenderName(entrant), imageUrl }];
+      }),
+    [entrants],
+  );
   const rosterMembers = useMemo(() => parseEntrantsFromText(rosterText), [rosterText]);
   const previewIsValid = useMemo(() => {
     const startsAtIso = new Date(startsAt).toISOString();
@@ -299,6 +311,7 @@ export function CreateBracketForm({
     setPhotoLookupError(null);
     setShowPhotoReview(false);
     setPhotoSuggestions([]);
+    setShowAppliedPhotoPreview(false);
   }
 
   function reshufflePreview() {
@@ -310,6 +323,7 @@ export function CreateBracketForm({
     setPhotoLookupError(null);
     setShowPhotoReview(false);
     setPhotoSuggestions([]);
+    setShowAppliedPhotoPreview(false);
     try {
       const nextEntrants = parseContendersFromText(value);
       setPreviewSeededEntrants(seedingMode === "random" ? shufflePreview(nextEntrants) : nextEntrants);
@@ -482,6 +496,7 @@ export function CreateBracketForm({
     updateEntrants(nextEntrants);
     setShowPhotoReview(false);
     setPhotoSuggestions([]);
+    setShowAppliedPhotoPreview(true);
   }
 
   const foundPhotoSuggestions = photoSuggestions.filter((suggestion) => suggestion.status === "found");
@@ -626,6 +641,34 @@ export function CreateBracketForm({
                     {contenderName(entrant)}
                     {contenderImageUrl(entrant) ? <span className="bw-contender-chip-media">image</span> : null}
                   </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {showAppliedPhotoPreview ? (
+            <div className="bw-photo-applied-preview">
+              <div className="bw-photo-applied-header">
+                <span className="bw-card-label">Applied photo preview</span>
+                <strong>
+                  {entrantsWithImages.length}/{entrants.length} with images
+                </strong>
+              </div>
+              <small>Click any tile to open the image. Edit any line above to swap a bad URL before launch.</small>
+              <div className="bw-photo-applied-grid">
+                {entrantsWithImages.map((entrant) => (
+                  <a
+                    className="bw-photo-applied-card"
+                    href={entrant.imageUrl}
+                    key={`${entrant.name}-${entrant.imageUrl}`}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <span
+                      className="bw-photo-applied-image"
+                      style={{ backgroundImage: `url("${entrant.imageUrl}")` }}
+                    />
+                    <span>{entrant.name}</span>
+                  </a>
                 ))}
               </div>
             </div>
@@ -779,6 +822,31 @@ export function CreateBracketForm({
         </section>
       ) : null}
       {contenderParse.error ? <p className="error-text">{contenderParse.error}</p> : null}
+      {showAppliedPhotoPreview ? (
+        <section className="photo-applied-preview stack-sm">
+          <div className="inline-row">
+            <span className="eyebrow">Applied Photo Preview</span>
+            <strong>
+              {entrantsWithImages.length}/{entrants.length} with images
+            </strong>
+          </div>
+          <span className="muted">Click any tile to open the image. Edit lines above to replace any bad URL before launch.</span>
+          <div className="photo-applied-grid">
+            {entrantsWithImages.map((entrant) => (
+              <a
+                className="photo-applied-card"
+                href={entrant.imageUrl}
+                key={`${entrant.name}-${entrant.imageUrl}`}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <span className="photo-applied-image" style={{ backgroundImage: `url("${entrant.imageUrl}")` }} />
+                <span>{entrant.name}</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {entrants.length >= 4 ? (
         <section className="photo-lookup-panel stack-sm">
           <span className="eyebrow">Qualifier Mode (Rare)</span>

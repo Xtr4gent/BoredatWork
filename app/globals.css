@@ -412,6 +412,43 @@ button {
   padding: 0.65rem 0.75rem;
 }
 
+.photo-applied-preview {
+  border: 1px dashed rgba(29, 35, 50, 0.22);
+  border-radius: 12px;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.photo-applied-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+}
+
+.photo-applied-card {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--fg-1);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.photo-applied-card:hover .photo-applied-image {
+  transform: scale(1.04);
+}
+
+.photo-applied-image {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  border: 1px solid rgba(29, 35, 50, 0.18);
+  background-color: rgba(255, 255, 255, 0.06);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  transition: transform 0.18s ease;
+}
+
 .preview-summary {
   display: flex;
   justify-content: space-between;
@@ -2455,6 +2492,64 @@ button {
   color: var(--bw-lime);
   font-weight: 700;
   text-decoration: none;
+}
+
+.bw-photo-applied-preview {
+  border: 1px solid var(--bw-border);
+  border-radius: 10px;
+  background: var(--bw-bg2);
+  padding: 10px;
+  margin-top: 10px;
+}
+
+.bw-photo-applied-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.bw-photo-applied-header strong {
+  color: var(--bw-white);
+  font-size: 12px;
+}
+
+.bw-photo-applied-preview small {
+  display: block;
+  color: var(--bw-muted);
+  margin-top: 6px;
+}
+
+.bw-photo-applied-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  margin-top: 10px;
+}
+
+.bw-photo-applied-card {
+  display: grid;
+  gap: 6px;
+  color: var(--bw-white);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.bw-photo-applied-card:hover .bw-photo-applied-image {
+  transform: scale(1.03);
+}
+
+.bw-photo-applied-image {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  border: 1px solid var(--bw-border);
+  background-color: rgba(255, 255, 255, 0.08);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  transition: transform 0.18s ease;
 }
 
 .bw-qualifier-panel {
