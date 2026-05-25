@@ -82,6 +82,50 @@ test("manual seeding pairs adjacent entrants in round one", async () => {
   }
 });
 
+test("createBracket supports qualifier mode with a dedicated play-in round", async () => {
+  await resetStore();
+  const { bracket } = await createBracket({
+    title: "Qualifier Format",
+    seedingMode: "manual",
+    entrants: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
+    directQualifierNames: ["A", "B", "C", "D", "E", "F"],
+    rosterMembers: roster,
+    startsAt: new Date().toISOString(),
+    totalPlayers: roster.length,
+    roundDurationHours: 1,
+  });
+
+  assert.equal(bracket.rounds[0].label, "Play-In");
+  assert.equal(bracket.rounds[0].matchups.length, 2);
+  assert.equal(bracket.rounds[1].matchups.length, 4);
+});
+
+test("qualifier mode reserves main-bracket slots for play-in winners", async () => {
+  await resetStore();
+  const { bracket } = await createBracket({
+    title: "Qualifier Slot Mapping",
+    seedingMode: "manual",
+    entrants: ["A", "B", "C", "D", "E", "F", "G", "H"],
+    directQualifierNames: ["A", "B", "C", "D"],
+    rosterMembers: roster,
+    startsAt: new Date().toISOString(),
+    totalPlayers: roster.length,
+    roundDurationHours: 1,
+  });
+
+  const playInRound = bracket.rounds[0];
+  const [playInA, playInB] = playInRound.matchups;
+  const firstMainMatchup = bracket.rounds[1].matchups[0];
+  assert.ok(playInA.entrantAId && playInA.entrantBId);
+  assert.ok(playInB.entrantAId && playInB.entrantBId);
+  assert.equal(firstMainMatchup.entrantAId, null);
+  assert.equal(firstMainMatchup.entrantBId, null);
+  const hasDirectQualifierInMainRound = bracket.rounds[1].matchups.some(
+    (matchup) => matchup.entrantAId || matchup.entrantBId,
+  );
+  assert.equal(hasDirectQualifierInMainRound, true);
+});
+
 test("castVote rejects duplicate votes from the same roster member in a matchup", async () => {
   await resetStore();
   const { bracket } = await createBracket({

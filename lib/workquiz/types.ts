@@ -69,6 +69,7 @@ export interface BracketRecord {
   roundDurationHours: number;
   revoteDurationHours: number;
   entrants: EntrantRecord[];
+  directQualifierEntrantIds?: string[];
   rosterMembers: RosterMemberRecord[];
   rounds: RoundRecord[];
 }
@@ -82,6 +83,7 @@ export interface CreateBracketInput {
   kind?: BracketKind;
   seedingMode: SeedingMode;
   entrants: EntrantInput[];
+  directQualifierNames?: string[];
   rosterMembers: string[];
   seededEntrants?: EntrantInput[];
   startsAt: string;

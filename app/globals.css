@@ -2457,6 +2457,26 @@ button {
   text-decoration: none;
 }
 
+.bw-qualifier-panel {
+  border: 1px solid var(--bw-border);
+  border-radius: 10px;
+  background: var(--bw-bg2);
+  padding: 10px;
+  margin-bottom: 14px;
+}
+
+.bw-qualifier-panel small {
+  display: block;
+  color: var(--bw-muted);
+  margin: 8px 0;
+}
+
+.bw-qualifier-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .bw-contender-chips {
   margin-top: 8px;
 }

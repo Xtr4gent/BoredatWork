@@ -123,15 +123,83 @@ function buildRoundsForBracket(
   roundDurationHours: number,
   endsAt?: string,
 ) {
-  const bracketSize = nextPowerOfTwo(bracket.entrants.length);
-  const totalRounds = Math.log2(bracketSize);
+  const directQualifierEntrantIds = new Set(bracket.directQualifierEntrantIds ?? []);
+  const hasManualQualifiers =
+    directQualifierEntrantIds.size > 0 &&
+    directQualifierEntrantIds.size < bracket.entrants.length;
+
+  if (!hasManualQualifiers) {
+    const bracketSize = nextPowerOfTwo(bracket.entrants.length);
+    const totalRounds = Math.log2(bracketSize);
+    const roundSchedule = parseSchedule(startsAt, roundDurationHours, totalRounds, endsAt);
+    const seedToEntrant = new Map(bracket.entrants.map((entrant) => [entrant.seed, entrant]));
+
+    const rounds: RoundRecord[] = Array.from({ length: totalRounds }, (_, index) => ({
+      id: nanoid(),
+      number: index + 1,
+      label: labelForRound(index + 1, totalRounds),
+      startsAt: roundSchedule[index].startsAt,
+      endsAt: roundSchedule[index].endsAt,
+      status:
+        index === 0 && new Date(roundSchedule[index].startsAt).getTime() <= Date.now()
+          ? "live"
+          : "upcoming",
+      matchups: [],
+    }));
+
+    rounds[0].matchups = Array.from({ length: bracketSize / 2 }, (_, index) => {
+      const seedA = index * 2 + 1;
+      const seedB = index * 2 + 2;
+
+      return {
+        id: nanoid(),
+        slot: index + 1,
+        entrantAId: seedToEntrant.get(seedA)?.id ?? null,
+        entrantBId: seedToEntrant.get(seedB)?.id ?? null,
+        winnerEntrantId: null,
+        status: rounds[0].status === "live" ? "live" : "pending",
+        votes: [],
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    for (let roundIndex = 1; roundIndex < totalRounds; roundIndex += 1) {
+      rounds[roundIndex].matchups = Array.from(
+        { length: rounds[roundIndex - 1].matchups.length / 2 },
+        (_, index) => ({
+          id: nanoid(),
+          slot: index + 1,
+          entrantAId: null,
+          entrantBId: null,
+          winnerEntrantId: null,
+          status: "pending",
+          votes: [],
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+    }
+
+    resolveAutomaticWinners({ ...bracket, rounds });
+    return rounds;
+  }
+
+  const sortedEntrants = [...bracket.entrants].sort((left, right) => left.seed - right.seed);
+  const directQualifiers = sortedEntrants.filter((entrant) => directQualifierEntrantIds.has(entrant.id));
+  const playInEntrants = sortedEntrants.filter((entrant) => !directQualifierEntrantIds.has(entrant.id));
+  const playInMatchupCount = Math.ceil(playInEntrants.length / 2);
+  const mainEntrantCount = directQualifiers.length + playInMatchupCount;
+  const mainBracketSize = nextPowerOfTwo(Math.max(2, mainEntrantCount));
+  const mainRounds = Math.log2(mainBracketSize);
+  const totalRounds = mainRounds + 1;
   const roundSchedule = parseSchedule(startsAt, roundDurationHours, totalRounds, endsAt);
-  const seedToEntrant = new Map(bracket.entrants.map((entrant) => [entrant.seed, entrant]));
 
   const rounds: RoundRecord[] = Array.from({ length: totalRounds }, (_, index) => ({
     id: nanoid(),
     number: index + 1,
-    label: labelForRound(index + 1, totalRounds),
+    label:
+      index === 0
+        ? "Play-In"
+        : labelForRound(index, mainRounds),
     startsAt: roundSchedule[index].startsAt,
     endsAt: roundSchedule[index].endsAt,
     status:
@@ -141,23 +209,62 @@ function buildRoundsForBracket(
     matchups: [],
   }));
 
-  rounds[0].matchups = Array.from({ length: bracketSize / 2 }, (_, index) => {
-    const seedA = index * 2 + 1;
-    const seedB = index * 2 + 2;
+  rounds[0].matchups = Array.from({ length: playInMatchupCount }, (_, index) => ({
+    id: nanoid(),
+    slot: index + 1,
+    entrantAId: playInEntrants[index * 2]?.id ?? null,
+    entrantBId: playInEntrants[index * 2 + 1]?.id ?? null,
+    winnerEntrantId: null,
+    status: rounds[0].status === "live" ? "live" : "pending",
+    votes: [],
+    updatedAt: new Date().toISOString(),
+  }));
 
-    return {
-      id: nanoid(),
-      slot: index + 1,
-      entrantAId: seedToEntrant.get(seedA)?.id ?? null,
-      entrantBId: seedToEntrant.get(seedB)?.id ?? null,
-      winnerEntrantId: null,
-      status: rounds[0].status === "live" ? "live" : "pending",
-      votes: [],
-      updatedAt: new Date().toISOString(),
-    };
+  rounds[1].matchups = Array.from({ length: mainBracketSize / 2 }, (_, index) => ({
+    id: nanoid(),
+    slot: index + 1,
+    entrantAId: null,
+    entrantBId: null,
+    winnerEntrantId: null,
+    status: "pending",
+    votes: [],
+    updatedAt: new Date().toISOString(),
+  }));
+
+  const reservedSlots = new Set<string>();
+  for (let playInSlot = 1; playInSlot <= playInMatchupCount; playInSlot += 1) {
+    const targetMatchup = rounds[1].matchups[Math.floor((playInSlot - 1) / 2)];
+    if (!targetMatchup) {
+      continue;
+    }
+    if ((playInSlot - 1) % 2 === 0) {
+      reservedSlots.add(`${targetMatchup.slot}:A`);
+    } else {
+      reservedSlots.add(`${targetMatchup.slot}:B`);
+    }
+  }
+
+  const firstMainRoundSlots = rounds[1].matchups.flatMap((matchup) => [
+    { matchup, side: "A" as const },
+    { matchup, side: "B" as const },
+  ]);
+  const fillableSlots = firstMainRoundSlots.filter(
+    (slot) => !reservedSlots.has(`${slot.matchup.slot}:${slot.side}`),
+  );
+
+  directQualifiers.forEach((entrant, index) => {
+    const slot = fillableSlots[index];
+    if (!slot) {
+      return;
+    }
+    if (slot.side === "A") {
+      slot.matchup.entrantAId = entrant.id;
+    } else {
+      slot.matchup.entrantBId = entrant.id;
+    }
   });
 
-  for (let roundIndex = 1; roundIndex < totalRounds; roundIndex += 1) {
+  for (let roundIndex = 2; roundIndex < totalRounds; roundIndex += 1) {
     rounds[roundIndex].matchups = Array.from(
       { length: rounds[roundIndex - 1].matchups.length / 2 },
       (_, index) => ({
@@ -295,6 +402,17 @@ export async function createBracket(input: CreateBracketInput) {
     seed: index + 1,
     imageUrl: entrant.imageUrl,
   }));
+  const entrantByNormalizedName = new Map(
+    entrants.map((entrant) => [normalizeRosterName(entrant.name), entrant]),
+  );
+  const requestedQualifierNames = (input.directQualifierNames ?? []).map((name) => normalizeRosterName(name));
+  const directQualifierEntrantIds = Array.from(
+    new Set(
+      requestedQualifierNames
+        .map((name) => entrantByNormalizedName.get(name)?.id ?? null)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
   const rosterMembers = input.rosterMembers.map<RosterMemberRecord>((name) => ({
     id: nanoid(),
     name,
@@ -317,6 +435,7 @@ export async function createBracket(input: CreateBracketInput) {
     roundDurationHours,
     revoteDurationHours: input.revoteDurationHours || DEFAULT_REVOTE_DURATION_HOURS,
     entrants,
+    directQualifierEntrantIds,
     rosterMembers,
     rounds: [],
   };
@@ -1032,12 +1151,24 @@ export function buildPreviewSnapshot(input: CreateBracketInput): BracketSnapshot
       seed: index + 1,
       imageUrl: entrant.imageUrl,
     })),
+    directQualifierEntrantIds: [],
     rosterMembers: input.rosterMembers.map<RosterMemberRecord>((name, index) => ({
       id: `preview-roster-${index + 1}`,
       name,
     })),
     rounds: [],
   };
+
+  const previewEntrantByName = new Map(
+    previewBracket.entrants.map((entrant) => [normalizeRosterName(entrant.name), entrant.id]),
+  );
+  previewBracket.directQualifierEntrantIds = Array.from(
+    new Set(
+      (input.directQualifierNames ?? [])
+        .map((name) => previewEntrantByName.get(normalizeRosterName(name)) ?? null)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
 
   previewBracket.rounds = buildRoundsForBracket(
     previewBracket,

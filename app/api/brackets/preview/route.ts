@@ -9,6 +9,7 @@ export async function POST(request: Request) {
   const body = (await request.json()) as {
     title?: string;
     entrants?: EntrantInput[];
+    directQualifierNames?: string[];
     rosterMembers?: string[];
     seededEntrants?: EntrantInput[];
     entrantsText?: string;
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
     buildPreviewSnapshot({
       title: body.title.trim(),
       entrants,
+      directQualifierNames: body.directQualifierNames,
       rosterMembers,
       seededEntrants,
       seedingMode: body.seedingMode ?? "manual",

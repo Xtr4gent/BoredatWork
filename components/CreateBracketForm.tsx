@@ -155,6 +155,7 @@ export function CreateBracketForm({
   const [photoLookupError, setPhotoLookupError] = useState<string | null>(null);
   const [photoSuggestions, setPhotoSuggestions] = useState<PhotoSuggestion[]>([]);
   const [showPhotoReview, setShowPhotoReview] = useState(false);
+  const [directQualifierNames, setDirectQualifierNames] = useState<string[]>([]);
 
   const contenderParse = useMemo(() => {
     try {
@@ -167,6 +168,7 @@ export function CreateBracketForm({
     }
   }, [entrantsText]);
   const entrants = contenderParse.entrants;
+  const entrantNames = useMemo(() => entrants.map((entrant) => contenderName(entrant)), [entrants]);
   const rosterMembers = useMemo(() => parseEntrantsFromText(rosterText), [rosterText]);
   const previewIsValid = useMemo(() => {
     const startsAtIso = new Date(startsAt).toISOString();
@@ -205,6 +207,7 @@ export function CreateBracketForm({
         body: JSON.stringify({
           title,
           entrants,
+          directQualifierNames,
           rosterMembers,
           seededEntrants: previewSeededEntrants,
           seedingMode,
@@ -236,7 +239,7 @@ export function CreateBracketForm({
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [endsAt, entrants, previewIsValid, previewSeededEntrants, rosterMembers, seedingMode, startsAt, title, variant]);
+  }, [directQualifierNames, endsAt, entrants, previewIsValid, previewSeededEntrants, rosterMembers, seedingMode, startsAt, title, variant]);
 
   useEffect(() => {
     if (initialTemplate) {
@@ -282,9 +285,17 @@ export function CreateBracketForm({
     window.localStorage.setItem(LAST_ROSTER_STORAGE_KEY, rosterText);
   }, [entrantsText, isStorageReady, rosterText, title]);
 
+  function syncQualifierNames(nextEntrants: EntrantInput[]) {
+    const availableEntrants = new Set(nextEntrants.map((entrant) => contenderName(entrant).toLowerCase()));
+    setDirectQualifierNames((previous) =>
+      previous.filter((name) => availableEntrants.has(name.toLowerCase())),
+    );
+  }
+
   function updateEntrants(next: EntrantInput[]) {
     setEntrantsText(next.map(contenderLine).join("\n"));
     setPreviewSeededEntrants(seedingMode === "random" ? shufflePreview(next) : next);
+    syncQualifierNames(next);
     setPhotoLookupError(null);
     setShowPhotoReview(false);
     setPhotoSuggestions([]);
@@ -302,13 +313,24 @@ export function CreateBracketForm({
     try {
       const nextEntrants = parseContendersFromText(value);
       setPreviewSeededEntrants(seedingMode === "random" ? shufflePreview(nextEntrants) : nextEntrants);
+      syncQualifierNames(nextEntrants);
     } catch {
       setPreviewSeededEntrants([]);
+      setDirectQualifierNames([]);
     }
   }
 
   function handleRosterTextChange(value: string) {
     setRosterText(value);
+  }
+
+  function toggleDirectQualifier(name: string) {
+    setDirectQualifierNames((previous) => {
+      if (previous.some((entry) => entry.toLowerCase() === name.toLowerCase())) {
+        return previous.filter((entry) => entry.toLowerCase() !== name.toLowerCase());
+      }
+      return [...previous, name];
+    });
   }
 
   function handleSeedingModeChange(nextMode: SeedingMode) {
@@ -334,6 +356,7 @@ export function CreateBracketForm({
       title: String(formData.get("title") ?? ""),
       kind,
       entrants,
+      directQualifierNames,
       rosterMembers,
       seededEntrants: previewSeededEntrants,
       seedingMode,
@@ -570,6 +593,30 @@ export function CreateBracketForm({
             </div>
           ) : null}
           {contenderParse.error ? <p className="bw-error-text">{contenderParse.error}</p> : null}
+          {entrants.length >= 4 ? (
+            <div className="bw-qualifier-panel">
+              <span className="bw-card-label">Qualifier mode (rare)</span>
+              <small>
+                Pick contenders that skip play-ins. Everyone else enters play-in matches and those winners fill the main bracket.
+              </small>
+              <div className="bw-qualifier-chips">
+                {entrantNames.map((name) => {
+                  const selected = directQualifierNames.some((entry) => entry.toLowerCase() === name.toLowerCase());
+                  return (
+                    <button
+                      className={selected ? "bw-time-btn sel" : "bw-time-btn"}
+                      key={name}
+                      onClick={() => toggleDirectQualifier(name)}
+                      type="button"
+                    >
+                      {selected ? "Qualifier: " : "Play-in: "}
+                      {name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
           {entrants.length ? (
             <div className="bw-contender-preview">
               <span className="bw-card-label">Preview</span>
@@ -732,6 +779,30 @@ export function CreateBracketForm({
         </section>
       ) : null}
       {contenderParse.error ? <p className="error-text">{contenderParse.error}</p> : null}
+      {entrants.length >= 4 ? (
+        <section className="photo-lookup-panel stack-sm">
+          <span className="eyebrow">Qualifier Mode (Rare)</span>
+          <span className="muted">
+            Mark contenders that skip play-ins. Unmarked contenders play in qualifier games, and those winners fill the main bracket.
+          </span>
+          <div className="photo-lookup-actions">
+            {entrantNames.map((name) => {
+              const selected = directQualifierNames.some((entry) => entry.toLowerCase() === name.toLowerCase());
+              return (
+                <button
+                  className={selected ? "pill active" : "pill"}
+                  key={name}
+                  onClick={() => toggleDirectQualifier(name)}
+                  type="button"
+                >
+                  {selected ? "Qualifier: " : "Play-in: "}
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <label className="field">
         <span>Team roster, one person per line</span>

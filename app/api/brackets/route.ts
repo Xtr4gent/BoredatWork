@@ -10,6 +10,7 @@ export async function POST(request: Request) {
     title?: string;
     kind?: BracketKind;
     entrants?: EntrantInput[];
+    directQualifierNames?: string[];
     rosterMembers?: string[];
     seededEntrants?: EntrantInput[];
     entrantsText?: string;
@@ -71,6 +72,7 @@ export async function POST(request: Request) {
     title: body.title.trim(),
     kind: body.kind === "test" ? "test" : "public",
     entrants,
+    directQualifierNames: body.directQualifierNames,
     rosterMembers,
     seededEntrants,
     seedingMode: body.seedingMode ?? "manual",
