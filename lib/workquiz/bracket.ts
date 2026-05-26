@@ -946,13 +946,23 @@ export async function resolveTieBreaker(params: {
       throw new Error("Matchup not found.");
     }
 
-    const unresolvedTie = !targetMatchup.winnerEntrantId && matchupNeedsTieBreaker(targetMatchup);
+    const matchupStillTied = matchupNeedsTieBreaker(targetMatchup);
+    const unresolvedTie = !targetMatchup.winnerEntrantId && matchupStillTied;
     if (unresolvedTie) {
       targetRound.status = "tiebreaker";
       targetMatchup.status = "needs_tiebreaker";
     }
 
-    if (targetRound.status !== "tiebreaker" || targetMatchup.status !== "needs_tiebreaker") {
+    if (targetMatchup.winnerEntrantId) {
+      updatedBracketId = bracket.id;
+      return store;
+    }
+
+    const canResolveTieBreaker =
+      matchupStillTied ||
+      targetMatchup.status === "needs_tiebreaker" ||
+      targetRound.status === "tiebreaker";
+    if (!canResolveTieBreaker) {
       throw new Error("This matchup does not need a tie breaker.");
     }
 

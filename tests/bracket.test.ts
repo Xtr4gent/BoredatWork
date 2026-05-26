@@ -431,6 +431,57 @@ test("resolveTieBreaker repairs other stale matchups in the same round", async (
   assert.equal(resolved.rounds[1].matchups[0].entrantBId, semiB.entrantAId);
 });
 
+test("resolveTieBreaker is safe to retry after a winner is already set", async () => {
+  await resetStore();
+  const startsAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const { bracket, adminToken } = await createBracket({
+    title: "Tie Retry Safety",
+    seedingMode: "manual",
+    entrants: ["Mars", "Twix", "Kit Kat", "Aero"],
+    rosterMembers: roster,
+    startsAt,
+    totalPlayers: roster.length,
+    roundDurationHours: 1,
+  });
+
+  const semiA = bracket.rounds[0].matchups[0];
+  const semiB = bracket.rounds[0].matchups[1];
+
+  let updated = await castVote({
+    publicToken: bracket.publicToken,
+    matchupId: semiA.id,
+    entrantId: semiA.entrantAId!,
+    rosterMemberId: bracket.rosterMembers[0].id,
+  });
+  updated = await castVote({
+    publicToken: bracket.publicToken,
+    matchupId: semiA.id,
+    entrantId: semiA.entrantBId!,
+    rosterMemberId: bracket.rosterMembers[1].id,
+  });
+  updated = await castVote({
+    publicToken: bracket.publicToken,
+    matchupId: semiB.id,
+    entrantId: semiB.entrantAId!,
+    rosterMemberId: bracket.rosterMembers[2].id,
+  });
+
+  advanceBracket(updated, new Date(Date.now() + 60 * 60 * 1000));
+  const firstResolution = await resolveTieBreaker({
+    adminToken,
+    matchupId: semiA.id,
+    winnerEntrantId: semiA.entrantAId!,
+  });
+  const secondResolution = await resolveTieBreaker({
+    adminToken,
+    matchupId: semiA.id,
+    winnerEntrantId: semiA.entrantAId!,
+  });
+
+  assert.equal(firstResolution.rounds[0].matchups[0].winnerEntrantId, semiA.entrantAId);
+  assert.equal(secondResolution.rounds[0].matchups[0].winnerEntrantId, semiA.entrantAId);
+});
+
 test("buildSnapshot marks a roster member green only after finishing the whole current round", async () => {
   await resetStore();
   const { bracket } = await createBracket({

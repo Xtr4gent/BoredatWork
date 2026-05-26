@@ -497,7 +497,12 @@ export function BracketClient({
     matchup: BracketSnapshotMatchup,
     winner: BracketSnapshotEntrant | null,
   ) {
-    if (!adminToken || !winner) {
+    if (!winner) {
+      return;
+    }
+
+    if (!adminToken) {
+      setError("Admin token is missing. Refresh admin page and try again.");
       return;
     }
 
@@ -506,18 +511,33 @@ export function BracketClient({
     }
 
     setError(null);
-    const response = await fetch(`/api/admin/${adminToken}/ties/resolve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ matchupId: matchup.id, winnerEntrantId: winner.id }),
-    });
-    const result = (await response.json()) as BracketSnapshot & { error?: string };
-    if (!response.ok) {
-      setError(result.error ?? "Could not resolve the tie breaker.");
-      return;
-    }
+    try {
+      const response = await fetch(`/api/admin/${adminToken}/ties/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchupId: matchup.id, winnerEntrantId: winner.id }),
+      });
+      const raw = await response.text();
+      let result: (BracketSnapshot & { error?: string }) | null = null;
+      if (raw) {
+        try {
+          result = JSON.parse(raw) as BracketSnapshot & { error?: string };
+        } catch {
+          result = {
+            error: "Tie-breaker request failed before the server returned JSON.",
+          } as BracketSnapshot & { error?: string };
+        }
+      }
 
-    setSnapshot(result);
+      if (!response.ok || !result) {
+        setError(result?.error ?? "Could not resolve the tie breaker.");
+        return;
+      }
+
+      setSnapshot(result);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not resolve the tie breaker.");
+    }
   }
 
   function renderPublicVote(matchup: BracketSnapshotMatchup) {
