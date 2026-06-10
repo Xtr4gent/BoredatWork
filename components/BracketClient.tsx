@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   BracketSnapshot,
@@ -126,6 +126,7 @@ export function BracketClient({
   const [adminSection, setAdminSection] = useState<AdminSection>("live");
   const [inspectedRosterMemberId, setInspectedRosterMemberId] = useState<string | null>(null);
   const hydrated = useHydrated();
+  const lastEtagRef = useRef<{ url: string; etag: string } | null>(null);
 
   const refresh = useEffectEvent(async () => {
     if (mode === "history") {
@@ -137,13 +138,24 @@ export function BracketClient({
         ? `?rosterMemberId=${encodeURIComponent(selectedRosterMemberId ?? "")}`
         : "";
     const url = mode === "admin" ? `/api/admin/${adminToken}` : `/api/brackets/${token}${query}`;
-    const response = await fetch(url, { cache: "no-store" });
+    const headers: Record<string, string> = {};
+    if (lastEtagRef.current?.url === url) {
+      headers["If-None-Match"] = lastEtagRef.current.etag;
+    }
+
+    const response = await fetch(url, { cache: "no-store", headers });
+    if (response.status === 304) {
+      return;
+    }
+
     const result = (await response.json()) as BracketSnapshot & { error?: string };
     if (!response.ok) {
       setError(result.error ?? "Could not refresh the bracket.");
       return;
     }
 
+    const etag = response.headers.get("etag");
+    lastEtagRef.current = etag ? { url, etag } : null;
     setSnapshot(result);
   });
 
@@ -152,36 +164,110 @@ export function BracketClient({
       return;
     }
 
-    let interval: NodeJS.Timeout | undefined;
-    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${scheme}://${window.location.host}/ws?token=${token}`);
+    let disposed = false;
+    let ws: WebSocket | null = null;
+    let reconnectAttempts = 0;
+    let reconnectTimer: number | undefined;
+    let pollTimer: number | undefined;
+    let refreshTimer: number | undefined;
 
-    ws.addEventListener("message", () => {
-      void refresh();
-    });
+    // Coalesces bursts of realtime events into one fetch. Hidden tabs skip
+    // refreshes entirely; the visibilitychange handler catches them up.
+    const scheduleRefresh = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
 
-    ws.addEventListener("close", () => {
-      interval = setInterval(() => {
+      if (refreshTimer !== undefined) {
+        return;
+      }
+
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = undefined;
         void refresh();
-      }, 10000);
-    });
+      }, 750);
+    };
 
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        void refresh();
+    const stopFallbackPolling = () => {
+      if (pollTimer !== undefined) {
+        window.clearInterval(pollTimer);
+        pollTimer = undefined;
       }
     };
 
+    // Only used while the websocket is down, and only for visible tabs.
+    const startFallbackPolling = () => {
+      if (pollTimer !== undefined) {
+        return;
+      }
+
+      pollTimer = window.setInterval(() => {
+        if (document.visibilityState === "visible") {
+          scheduleRefresh();
+        }
+      }, 30000);
+    };
+
+    const connect = () => {
+      if (disposed) {
+        return;
+      }
+
+      reconnectTimer = undefined;
+      const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${scheme}://${window.location.host}/ws?token=${token}`);
+
+      ws.addEventListener("open", () => {
+        reconnectAttempts = 0;
+        stopFallbackPolling();
+      });
+
+      ws.addEventListener("message", scheduleRefresh);
+
+      ws.addEventListener("close", () => {
+        ws = null;
+        if (disposed) {
+          return;
+        }
+
+        startFallbackPolling();
+        const delayMs =
+          Math.min(30000, 1000 * 2 ** Math.min(reconnectAttempts, 5)) + Math.random() * 1000;
+        reconnectAttempts += 1;
+        reconnectTimer = window.setTimeout(connect, delayMs);
+      });
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      void refresh();
+
+      if (!ws && reconnectTimer !== undefined) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+        connect();
+      }
+    };
+
+    connect();
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
-      if (interval) {
-        clearInterval(interval);
+      disposed = true;
+      stopFallbackPolling();
+      if (reconnectTimer !== undefined) {
+        window.clearTimeout(reconnectTimer);
+      }
+      if (refreshTimer !== undefined) {
+        window.clearTimeout(refreshTimer);
       }
       document.removeEventListener("visibilitychange", onVisible);
-      ws.close();
+      ws?.close();
     };
-  }, [adminToken, mode, selectedRosterMemberId, token]);
+  }, [mode, token]);
 
   useEffect(() => {
     if (mode === "public") {
@@ -195,6 +281,10 @@ export function BracketClient({
   );
 
   useEffect(() => {
+    if (mode === "history") {
+      return;
+    }
+
     const timer = window.setInterval(() => {
       setNowTick(Date.now());
     }, 1000);
@@ -202,22 +292,31 @@ export function BracketClient({
     return () => {
       window.clearInterval(timer);
     };
-  }, []);
+  }, [mode]);
+
+  const handledDeadlineRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!currentRound) {
       return;
     }
 
-    const deadline =
-      currentRound.status === "live"
-        ? new Date(currentRound.endsAt).getTime()
-        : new Date(currentRound.startsAt).getTime();
+    const deadlineIso =
+      currentRound.status === "live" ? currentRound.endsAt : currentRound.startsAt;
 
-    if (deadline > nowTick) {
+    if (new Date(deadlineIso).getTime() > nowTick) {
       return;
     }
 
+    // Refresh once per crossed deadline. Without this guard the 1s countdown
+    // tick refetched the snapshot every second for as long as a deadline sat
+    // in the past (e.g. waiting on a tie-breaker).
+    const deadlineKey = `${currentRound.id}:${currentRound.status}:${deadlineIso}`;
+    if (handledDeadlineRef.current === deadlineKey) {
+      return;
+    }
+
+    handledDeadlineRef.current = deadlineKey;
     void refresh();
   }, [currentRound, nowTick]);
 

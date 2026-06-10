@@ -79,9 +79,8 @@ function bracketKind(bracket: BracketRecord) {
   return bracket.kind ?? "public";
 }
 
-async function buildAdminHistory(): Promise<AdminHistoryItem[]> {
-  return (await readStore())
-    .brackets
+async function buildAdminHistory(brackets?: BracketRecord[]): Promise<AdminHistoryItem[]> {
+  return (brackets ?? (await readStore()).brackets)
     .map((bracket) => {
       if (bracketKind(bracket) === "test") {
         return null;
@@ -107,8 +106,8 @@ async function buildAdminHistory(): Promise<AdminHistoryItem[]> {
     .sort((left, right) => new Date(right.tournamentDate).getTime() - new Date(left.tournamentDate).getTime());
 }
 
-export async function listBracketHistory(limit?: number) {
-  const history = await buildAdminHistory();
+export async function listBracketHistory(limit?: number, brackets?: BracketRecord[]) {
+  const history = await buildAdminHistory(brackets);
 
   if (typeof limit === "number") {
     return history.slice(0, limit);
@@ -728,15 +727,19 @@ export async function findBracketByPublicToken(publicToken: string) {
   return (await readStore()).brackets.find((bracket) => bracket.publicToken === publicToken) ?? null;
 }
 
-export async function findCurrentPublicBracket() {
+export function selectCurrentPublicBracket(brackets: BracketRecord[]) {
   return (
-    (await readStore()).brackets.find(
+    brackets.find(
       (bracket) =>
         bracketKind(bracket) === "public" &&
         bracket.isCurrentPublic &&
         bracket.status !== "disabled",
     ) ?? null
   );
+}
+
+export async function findCurrentPublicBracket() {
+  return selectCurrentPublicBracket((await readStore()).brackets);
 }
 
 export async function findBracketByAdminToken(adminToken: string) {

@@ -11,6 +11,7 @@ const STORE_ROW_ID = "default";
 
 declare global {
   var __workquizPgPool: Pool | undefined;
+  var __workquizPgEnsured: boolean | undefined;
 }
 
 function initialStore(): StoreShape {
@@ -62,7 +63,13 @@ function repairStore(store: StoreShape) {
   return { store, changed };
 }
 
+// The schema is created once per process. Re-running CREATE TABLE + INSERT
+// on every read/write tripled the Postgres round-trips for each request.
 async function ensurePostgresStore(client: Pool | PoolClient) {
+  if (globalThis.__workquizPgEnsured) {
+    return;
+  }
+
   await client.query(`
     CREATE TABLE IF NOT EXISTS workquiz_store (
       id text PRIMARY KEY,
@@ -79,6 +86,8 @@ async function ensurePostgresStore(client: Pool | PoolClient) {
     `,
     [STORE_ROW_ID, JSON.stringify(initialStore())],
   );
+
+  globalThis.__workquizPgEnsured = true;
 }
 
 function ensureFileStore() {
@@ -162,11 +171,11 @@ export async function updateStore(mutator: (store: StoreShape) => StoreShape | P
 
   if (hasPostgresStore()) {
     const pool = getPool();
+    await ensurePostgresStore(pool);
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
-      await ensurePostgresStore(client);
       const result = await client.query<{ data: StoreShape }>(
         "SELECT data FROM workquiz_store WHERE id = $1 FOR UPDATE",
         [STORE_ROW_ID],

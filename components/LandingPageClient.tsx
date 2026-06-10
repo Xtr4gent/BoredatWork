@@ -61,12 +61,25 @@ export default function LandingPageClient({
     }
 
     void check();
+    // Hidden tabs skip polling entirely; we re-check the moment the user
+    // returns so the banner never looks stale.
     const id = window.setInterval(() => {
-      void check();
-    }, 30000);
+      if (document.visibilityState === "visible") {
+        void check();
+      }
+    }, 60000);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void check();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 

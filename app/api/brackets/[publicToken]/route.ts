@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
 import { getRememberedRosterMemberId } from "@/lib/workquiz/auth";
 import { buildSnapshot, findBracketByPublicToken } from "@/lib/workquiz/bracket";
+import { jsonWithETag } from "@/lib/workquiz/etag";
 
 export async function GET(
   request: Request,
@@ -32,5 +33,5 @@ export async function GET(
     ? rememberedRosterMemberId ?? undefined
     : undefined;
 
-  return NextResponse.json(buildSnapshot(bracket, { rosterMemberId }));
+  return jsonWithETag(request, buildSnapshot(bracket, { rosterMemberId }));
 }
