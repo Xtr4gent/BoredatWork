@@ -1,12 +1,8 @@
 import Link from "next/link";
 
 import { BracketClient } from "@/components/BracketClient";
-import { getOrCreateBrowserToken, getRememberedRosterMemberId } from "@/lib/workquiz/auth";
-import {
-  buildPublicSnapshot,
-  ensureVoterBinding,
-  findCurrentPublicBracket,
-} from "@/lib/workquiz/bracket";
+import { getBrowserToken, getRememberedRosterMemberId } from "@/lib/workquiz/auth";
+import { buildPublicSnapshot, findCurrentPublicBracket } from "@/lib/workquiz/bracket";
 import { rosterMemberIdForBrowser } from "@/lib/workquiz/voter";
 
 export const dynamic = "force-dynamic";
@@ -40,24 +36,16 @@ export default async function VotingPage() {
     );
   }
 
-  const browserToken = await getOrCreateBrowserToken();
+  const browserToken = await getBrowserToken();
   const rememberedRosterMemberId = await getRememberedRosterMemberId();
-  await ensureVoterBinding({
-    publicToken: bracket.publicToken,
-    browserToken,
-    rememberedRosterMemberId,
-  });
-
-  const refreshedBracket = (await findCurrentPublicBracket()) ?? bracket;
+  const boundRosterMemberId = browserToken ? rosterMemberIdForBrowser(bracket, browserToken) : null;
   const rosterMemberId =
-    rosterMemberIdForBrowser(refreshedBracket, browserToken) ?? rememberedRosterMemberId;
-  const snapshot = buildPublicSnapshot(refreshedBracket, {
-    rosterMemberId: refreshedBracket.rosterMembers.some((member) => member.id === rosterMemberId)
-      ? rosterMemberId
-      : null,
-  });
+    boundRosterMemberId ??
+    (bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId)
+      ? rememberedRosterMemberId
+      : null);
 
-  return (
-    <BracketClient initialSnapshot={snapshot} mode="public" token={refreshedBracket.publicToken} />
-  );
+  const snapshot = buildPublicSnapshot(bracket, { rosterMemberId });
+
+  return <BracketClient initialSnapshot={snapshot} mode="public" token={bracket.publicToken} />;
 }

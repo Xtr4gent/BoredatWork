@@ -3,6 +3,11 @@ import { nanoid } from "nanoid";
 
 import { COOKIE_NAME, LAST_ROSTER_MEMBER_COOKIE } from "@/lib/workquiz/constants";
 
+export async function getBrowserToken() {
+  const jar = await cookies();
+  return jar.get(COOKIE_NAME)?.value ?? null;
+}
+
 export async function getOrCreateBrowserToken() {
   const jar = await cookies();
   const existing = jar.get(COOKIE_NAME)?.value;
