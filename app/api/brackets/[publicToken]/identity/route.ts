@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
-import { setRememberedRosterMemberId } from "@/lib/workquiz/auth";
-import { findBracketByPublicToken } from "@/lib/workquiz/bracket";
+import { getOrCreateBrowserToken, setRememberedRosterMemberId } from "@/lib/workquiz/auth";
+import { claimVoterIdentity, findBracketByPublicToken } from "@/lib/workquiz/bracket";
 
 export async function POST(
   request: Request,
@@ -19,13 +19,28 @@ export async function POST(
     return NextResponse.json({ error: "Bracket not found." }, { status: 404 });
   }
 
-  const body = (await request.json().catch(() => ({}))) as { rosterMemberId?: string | null };
-  const rosterMemberId = body.rosterMemberId ?? null;
+  const body = (await request.json().catch(() => ({}))) as { rosterMemberName?: string | null };
+  const rosterMemberName = body.rosterMemberName?.trim() ?? null;
 
-  if (rosterMemberId && !bracket.rosterMembers.some((member) => member.id === rosterMemberId)) {
-    return NextResponse.json({ error: "Roster member not found." }, { status: 400 });
+  if (!rosterMemberName) {
+    return NextResponse.json({ error: "rosterMemberName is required." }, { status: 400 });
   }
 
-  await setRememberedRosterMemberId(rosterMemberId);
-  return NextResponse.json({ ok: true });
+  const browserToken = await getOrCreateBrowserToken();
+
+  try {
+    const { rosterMemberId } = await claimVoterIdentity({
+      publicToken,
+      browserToken,
+      rosterMemberName,
+    });
+
+    await setRememberedRosterMemberId(rosterMemberId);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not register your name." },
+      { status: 400 },
+    );
+  }
 }

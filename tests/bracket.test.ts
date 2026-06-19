@@ -5,11 +5,14 @@ import {
   advanceBracket,
   buildAdminSnapshot,
   buildPreviewSnapshot,
+  buildPublicSnapshot,
   buildSnapshot,
   castVote,
+  claimVoterIdentity,
   clearMatchupVote,
   createBracket,
   disableBracket,
+  ensureVoterBinding,
   findCurrentPublicBracket,
   listBracketHistory,
   markBracketAsCurrentPublic,
@@ -24,9 +27,35 @@ import {
   sanitizeAdminRedirectTarget,
 } from "@/lib/workquiz/admin-auth";
 import { DEFAULT_LANDING_HISTORY } from "@/lib/workquiz/landing-history";
-import { ensureStore, readStore, writeStore } from "@/lib/workquiz/store";
+import { ensureStore, readStore, updateStore, writeStore } from "@/lib/workquiz/store";
 
 const roster = ["Gabe", "Alex", "Jordan", "Sam"];
+
+async function bindAndCastVote(params: {
+  publicToken: string;
+  rosterMemberId: string;
+  matchupSlot: number;
+  side: "A" | "B";
+  browserToken?: string;
+}) {
+  const browserToken = params.browserToken ?? `browser-${params.rosterMemberId}`;
+
+  await updateStore((store) => {
+    const bracket = store.brackets.find((entry) => entry.publicToken === params.publicToken);
+    if (bracket) {
+      bracket.voterBindings ??= {};
+      bracket.voterBindings[browserToken] = params.rosterMemberId;
+    }
+    return store;
+  });
+
+  return castVote({
+    publicToken: params.publicToken,
+    browserToken,
+    matchupSlot: params.matchupSlot,
+    side: params.side,
+  });
+}
 
 async function resetStore() {
   await ensureStore();
@@ -141,19 +170,19 @@ test("castVote rejects duplicate votes from the same roster member in a matchup"
   const matchup = bracket.rounds[0].matchups[0];
   const voterId = bracket.rosterMembers[0].id;
 
-  await castVote({
+  await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: matchup.id,
-    entrantId: matchup.entrantAId!,
     rosterMemberId: voterId,
+    matchupSlot: matchup.slot,
+    side: "A",
   });
 
   await assert.rejects(() =>
-    castVote({
+    bindAndCastVote({
       publicToken: bracket.publicToken,
-      matchupId: matchup.id,
-      entrantId: matchup.entrantBId!,
       rosterMemberId: voterId,
+      matchupSlot: matchup.slot,
+      side: "B",
     }),
   );
 });
@@ -174,23 +203,23 @@ test("advanceBracket pauses tied matchups until the admin resolves the tie break
   const semiA = bracket.rounds[0].matchups[0];
   const semiB = bracket.rounds[0].matchups[1];
 
-  let updated = await castVote({
+  let updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiA.id,
-    entrantId: semiA.entrantAId!,
     rosterMemberId: bracket.rosterMembers[0].id,
+    matchupSlot: semiA.slot,
+    side: "A",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiA.id,
-    entrantId: semiA.entrantBId!,
     rosterMemberId: bracket.rosterMembers[1].id,
+    matchupSlot: semiA.slot,
+    side: "B",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiB.id,
-    entrantId: semiB.entrantAId!,
     rosterMemberId: bracket.rosterMembers[2].id,
+    matchupSlot: semiB.slot,
+    side: "A",
   });
 
   advanceBracket(updated, new Date(Date.now() + 60 * 60 * 1000));
@@ -267,23 +296,23 @@ test("advanceBracket heals a stale tiebreaker round after winners are set", asyn
   const semiB = bracket.rounds[0].matchups[1];
   const roundTwo = bracket.rounds[1];
 
-  let updated = await castVote({
+  let updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiA.id,
-    entrantId: semiA.entrantAId!,
     rosterMemberId: bracket.rosterMembers[0].id,
+    matchupSlot: semiA.slot,
+    side: "A",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiA.id,
-    entrantId: semiA.entrantBId!,
     rosterMemberId: bracket.rosterMembers[1].id,
+    matchupSlot: semiA.slot,
+    side: "B",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiB.id,
-    entrantId: semiB.entrantAId!,
     rosterMemberId: bracket.rosterMembers[2].id,
+    matchupSlot: semiB.slot,
+    side: "A",
   });
 
   advanceBracket(updated, new Date(Date.now() + 60 * 60 * 1000));
@@ -340,23 +369,23 @@ test("resolveTieBreaker recovers malformed tie state and still allows admin reso
   const semiA = bracket.rounds[0].matchups[0];
   const semiB = bracket.rounds[0].matchups[1];
 
-  let updated = await castVote({
+  let updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiA.id,
-    entrantId: semiA.entrantAId!,
     rosterMemberId: bracket.rosterMembers[0].id,
+    matchupSlot: semiA.slot,
+    side: "A",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiA.id,
-    entrantId: semiA.entrantBId!,
     rosterMemberId: bracket.rosterMembers[1].id,
+    matchupSlot: semiA.slot,
+    side: "B",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiB.id,
-    entrantId: semiB.entrantAId!,
     rosterMemberId: bracket.rosterMembers[2].id,
+    matchupSlot: semiB.slot,
+    side: "A",
   });
 
   advanceBracket(updated, new Date(Date.now() + 60 * 60 * 1000));
@@ -393,23 +422,23 @@ test("resolveTieBreaker repairs other stale matchups in the same round", async (
   const semiA = bracket.rounds[0].matchups[0];
   const semiB = bracket.rounds[0].matchups[1];
 
-  let updated = await castVote({
+  let updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiA.id,
-    entrantId: semiA.entrantAId!,
     rosterMemberId: bracket.rosterMembers[0].id,
+    matchupSlot: semiA.slot,
+    side: "A",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiA.id,
-    entrantId: semiA.entrantBId!,
     rosterMemberId: bracket.rosterMembers[1].id,
+    matchupSlot: semiA.slot,
+    side: "B",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiB.id,
-    entrantId: semiB.entrantAId!,
     rosterMemberId: bracket.rosterMembers[2].id,
+    matchupSlot: semiB.slot,
+    side: "A",
   });
 
   advanceBracket(updated, new Date(Date.now() + 60 * 60 * 1000));
@@ -447,23 +476,23 @@ test("resolveTieBreaker is safe to retry after a winner is already set", async (
   const semiA = bracket.rounds[0].matchups[0];
   const semiB = bracket.rounds[0].matchups[1];
 
-  let updated = await castVote({
+  let updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiA.id,
-    entrantId: semiA.entrantAId!,
     rosterMemberId: bracket.rosterMembers[0].id,
+    matchupSlot: semiA.slot,
+    side: "A",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiA.id,
-    entrantId: semiA.entrantBId!,
     rosterMemberId: bracket.rosterMembers[1].id,
+    matchupSlot: semiA.slot,
+    side: "B",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: semiB.id,
-    entrantId: semiB.entrantAId!,
     rosterMemberId: bracket.rosterMembers[2].id,
+    matchupSlot: semiB.slot,
+    side: "A",
   });
 
   advanceBracket(updated, new Date(Date.now() + 60 * 60 * 1000));
@@ -496,11 +525,11 @@ test("buildSnapshot marks a roster member green only after finishing the whole c
 
   const voterId = bracket.rosterMembers[0].id;
 
-  let updated = await castVote({
+  let updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: bracket.rounds[0].matchups[0].id,
-    entrantId: bracket.rounds[0].matchups[0].entrantAId!,
     rosterMemberId: voterId,
+    matchupSlot: bracket.rounds[0].matchups[0].slot,
+    side: "A",
   });
 
   let snapshot = buildSnapshot(updated, { rosterMemberId: voterId });
@@ -510,11 +539,11 @@ test("buildSnapshot marks a roster member green only after finishing the whole c
     false,
   );
 
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: updated.rounds[0].matchups[1].id,
-    entrantId: updated.rounds[0].matchups[1].entrantAId!,
     rosterMemberId: voterId,
+    matchupSlot: updated.rounds[0].matchups[1].slot,
+    side: "A",
   });
 
   snapshot = buildSnapshot(updated, { rosterMemberId: voterId });
@@ -654,11 +683,11 @@ test("restartBracket clears votes and sends the bracket back to round one", asyn
 
   const openingMatchup = bracket.rounds[0].matchups[0];
 
-  await castVote({
+  await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: openingMatchup.id,
-    entrantId: openingMatchup.entrantAId!,
     rosterMemberId: bracket.rosterMembers[0].id,
+    matchupSlot: openingMatchup.slot,
+    side: "A",
   });
 
   advanceBracket(bracket, new Date(Date.now() + 2 * 60 * 60 * 1000));
@@ -693,11 +722,11 @@ test("disableBracket makes the bracket unavailable for public use", async () => 
   assert.equal(snapshot.rounds[0].status, "closed");
   assert.equal(snapshot.rounds[0].matchups[0].status, "closed");
   await assert.rejects(() =>
-    castVote({
+    bindAndCastVote({
       publicToken: bracket.publicToken,
-      matchupId: bracket.rounds[0].matchups[0].id,
-      entrantId: bracket.rounds[0].matchups[0].entrantAId!,
       rosterMemberId: bracket.rosterMembers[0].id,
+      matchupSlot: bracket.rounds[0].matchups[0].slot,
+      side: "A",
     }),
   );
 });
@@ -717,11 +746,11 @@ test("clearMatchupVote removes one person's vote from a specific matchup", async
   const matchup = bracket.rounds[0].matchups[0];
   const voterId = bracket.rosterMembers[0].id;
 
-  await castVote({
+  await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: matchup.id,
-    entrantId: matchup.entrantAId!,
     rosterMemberId: voterId,
+    matchupSlot: matchup.slot,
+    side: "A",
   });
 
   const updated = await clearMatchupVote({
@@ -820,11 +849,11 @@ test("completed test brackets never appear in tournament history", async () => {
   });
 
   const matchup = bracket.rounds[0].matchups[0];
-  const updated = await castVote({
+  const updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: matchup.id,
-    entrantId: matchup.entrantAId!,
     rosterMemberId: bracket.rosterMembers[0].id,
+    matchupSlot: matchup.slot,
+    side: "A",
   });
   advanceBracket(updated, new Date(Date.now() + 60 * 60 * 1000));
   await writeStore({ brackets: [updated] });
@@ -847,17 +876,17 @@ test("test brackets still support tie-breaker resolution and restart controls", 
   });
 
   const matchup = bracket.rounds[0].matchups[0];
-  let updated = await castVote({
+  let updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: matchup.id,
-    entrantId: matchup.entrantAId!,
     rosterMemberId: bracket.rosterMembers[0].id,
+    matchupSlot: matchup.slot,
+    side: "A",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: matchup.id,
-    entrantId: matchup.entrantBId!,
     rosterMemberId: bracket.rosterMembers[1].id,
+    matchupSlot: matchup.slot,
+    side: "B",
   });
   advanceBracket(updated, new Date(Date.now() + 60 * 60 * 1000));
   await writeStore({ brackets: [updated] });
@@ -919,17 +948,17 @@ test("final ties wait for admin tie-breaker choice before crowning a champion", 
   });
 
   const final = bracket.rounds[0].matchups[0];
-  let updated = await castVote({
+  let updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: final.id,
-    entrantId: final.entrantAId!,
     rosterMemberId: bracket.rosterMembers[0].id,
+    matchupSlot: final.slot,
+    side: "A",
   });
-  updated = await castVote({
+  updated = await bindAndCastVote({
     publicToken: bracket.publicToken,
-    matchupId: final.id,
-    entrantId: final.entrantBId!,
     rosterMemberId: bracket.rosterMembers[1].id,
+    matchupSlot: final.slot,
+    side: "B",
   });
 
   advanceBracket(updated, new Date(Date.now() + 60 * 60 * 1000));
@@ -1138,4 +1167,96 @@ test("status route falls back to the single real landing tournament when history
   assert.equal(body.live, false);
   assert.equal(body.hasCurrentBracket, false);
   assert.deepEqual(body.history, DEFAULT_LANDING_HISTORY);
+});
+
+test("claimVoterIdentity binds one browser to one roster name", async () => {
+  await resetStore();
+  const { bracket } = await createBracket({
+    title: "Binding Test",
+    seedingMode: "manual",
+    entrants: ["Mars", "Twix"],
+    rosterMembers: roster,
+    startsAt: new Date().toISOString(),
+    totalPlayers: roster.length,
+    roundDurationHours: 1,
+  });
+
+  const first = await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "browser-a",
+    rosterMemberName: roster[0],
+  });
+  assert.equal(first.rosterMemberId, bracket.rosterMembers[0].id);
+
+  await assert.rejects(() =>
+    claimVoterIdentity({
+      publicToken: bracket.publicToken,
+      browserToken: "browser-b",
+      rosterMemberName: roster[0],
+    }),
+  );
+
+  await assert.rejects(() =>
+    claimVoterIdentity({
+      publicToken: bracket.publicToken,
+      browserToken: "browser-a",
+      rosterMemberName: roster[1],
+    }),
+  );
+});
+
+test("buildPublicSnapshot hides internal ids and resolves vote sides", async () => {
+  await resetStore();
+  const { bracket } = await createBracket({
+    title: "Public Snapshot",
+    seedingMode: "manual",
+    entrants: ["Mars", "Twix"],
+    rosterMembers: roster,
+    startsAt: new Date().toISOString(),
+    totalPlayers: roster.length,
+    roundDurationHours: 1,
+  });
+
+  const voterId = bracket.rosterMembers[0].id;
+  bracket.voterBindings = { "browser-a": voterId };
+  const matchup = bracket.rounds[0].matchups[0];
+  matchup.votes.push({
+    id: "vote-1",
+    rosterMemberId: voterId,
+    entrantId: matchup.entrantAId!,
+    createdAt: new Date().toISOString(),
+  });
+
+  const snapshot = buildPublicSnapshot(bracket, { rosterMemberId: voterId });
+  assert.equal(snapshot.selectedRosterMemberName, roster[0]);
+  assert.equal("id" in snapshot.rosterMembers[0], false);
+  assert.equal(snapshot.rounds[0].matchups[0].voteState.votedSide, "A");
+  assert.equal("id" in snapshot.rounds[0].matchups[0], false);
+});
+
+test("ensureVoterBinding lazily claims remembered roster members on legacy brackets", async () => {
+  await resetStore();
+  const { bracket } = await createBracket({
+    title: "Legacy Migration",
+    seedingMode: "manual",
+    entrants: ["Mars", "Twix"],
+    rosterMembers: roster,
+    startsAt: new Date().toISOString(),
+    totalPlayers: roster.length,
+    roundDurationHours: 1,
+  });
+
+  delete bracket.voterBindings;
+  await writeStore({ brackets: [bracket] });
+
+  const migrated = await ensureVoterBinding({
+    publicToken: bracket.publicToken,
+    browserToken: "legacy-browser",
+    rememberedRosterMemberId: bracket.rosterMembers[1].id,
+  });
+
+  assert.equal(migrated, bracket.rosterMembers[1].id);
+  const store = await readStore();
+  const stored = store.brackets[0];
+  assert.equal(stored.voterBindings?.["legacy-browser"], bracket.rosterMembers[1].id);
 });

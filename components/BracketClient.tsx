@@ -7,6 +7,10 @@ import {
   BracketSnapshot,
   BracketSnapshotEntrant,
   BracketSnapshotMatchup,
+  PublicBracketSnapshot,
+  PublicBracketSnapshotEntrant,
+  PublicBracketSnapshotMatchup,
+  BracketSnapshotRound,
 } from "@/lib/workquiz/types";
 import { CreateBracketForm } from "@/components/CreateBracketForm";
 
@@ -65,11 +69,31 @@ function percent(part: number, total: number) {
   return Math.round((part / total) * 100);
 }
 
-function entrantLabel(entrant: BracketSnapshotEntrant | null) {
+function entrantLabel(entrant: BracketSnapshotEntrant | PublicBracketSnapshotEntrant | null) {
   return entrant ? entrant.name : "TBD";
 }
 
-function renderEntrantImage(entrant: BracketSnapshotEntrant | null, className: string) {
+function isPublicSnapshot(
+  snapshot: BracketSnapshot | PublicBracketSnapshot,
+): snapshot is PublicBracketSnapshot {
+  return "selectedRosterMemberName" in snapshot;
+}
+
+function championName(snapshot: BracketSnapshot | PublicBracketSnapshot) {
+  if (isPublicSnapshot(snapshot)) {
+    const finalRound = snapshot.rounds[snapshot.rounds.length - 1];
+    return finalRound?.matchups[0]?.winnerName ?? null;
+  }
+
+  const finalRound = snapshot.rounds[snapshot.rounds.length - 1];
+  const winnerId = finalRound?.matchups[0]?.winnerEntrantId;
+  return snapshot.entrants.find((entrant) => entrant.id === winnerId)?.name ?? null;
+}
+
+function renderEntrantImage(
+  entrant: BracketSnapshotEntrant | PublicBracketSnapshotEntrant | null,
+  className: string,
+) {
   if (!entrant?.imageUrl) {
     return null;
   }
@@ -82,12 +106,6 @@ function renderEntrantImage(entrant: BracketSnapshotEntrant | null, className: s
       style={{ backgroundImage: `url(${entrant.imageUrl})` }}
     />
   );
-}
-
-function winnerName(snapshot: BracketSnapshot) {
-  const finalRound = snapshot.rounds[snapshot.rounds.length - 1];
-  const winnerId = finalRound?.matchups[0]?.winnerEntrantId;
-  return snapshot.entrants.find((entrant) => entrant.id === winnerId)?.name ?? null;
 }
 
 function matchupTitle(matchup: BracketSnapshotMatchup) {
@@ -103,25 +121,40 @@ function resultBarClassName(votes: number, otherVotes: number, totalVotes: numbe
   return isLeader ? baseClassName : `${baseClassName} losing`;
 }
 
-export function BracketClient({
-  token,
-  adminToken,
-  initialSnapshot,
-  mode,
-}: {
-  token: string;
-  adminToken?: string;
-  initialSnapshot: BracketSnapshot;
-  mode: "public" | "admin" | "history";
-}) {
-  const [snapshot, setSnapshot] = useState(initialSnapshot);
+type BracketClientProps =
+  | {
+      mode: "public";
+      token: string;
+      initialSnapshot: PublicBracketSnapshot;
+    }
+  | {
+      mode: "admin";
+      token: string;
+      adminToken?: string;
+      initialSnapshot: BracketSnapshot;
+    }
+  | {
+      mode: "history";
+      token: string;
+      initialSnapshot: BracketSnapshot;
+    };
+
+export function BracketClient(props: BracketClientProps) {
+  const { token, mode, initialSnapshot } = props;
+  const adminToken = props.mode === "admin" ? props.adminToken : undefined;
+  const [snapshot, setSnapshot] = useState<BracketSnapshot | PublicBracketSnapshot>(initialSnapshot);
   const [error, setError] = useState<string | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [selectedRosterMemberId, setSelectedRosterMemberId] = useState<string | null>(
-    initialSnapshot.selectedRosterMemberId ?? null,
+  const [selectedRosterMemberName, setSelectedRosterMemberName] = useState<string | null>(
+    mode === "public" ? initialSnapshot.selectedRosterMemberName ?? null : null,
+  );
+  const [selectedRosterMemberId] = useState<string | null>(
+    mode !== "public" && "selectedRosterMemberId" in initialSnapshot
+      ? (initialSnapshot.selectedRosterMemberId ?? null)
+      : null,
   );
   const [identityPickerOpen, setIdentityPickerOpen] = useState(
-    mode === "public" && !initialSnapshot.selectedRosterMemberId,
+    mode === "public" && !initialSnapshot.selectedRosterMemberName,
   );
   const [adminSection, setAdminSection] = useState<AdminSection>("live");
   const [inspectedRosterMemberId, setInspectedRosterMemberId] = useState<string | null>(null);
@@ -133,10 +166,7 @@ export function BracketClient({
       return;
     }
 
-    const query =
-      mode === "public"
-        ? `?rosterMemberId=${encodeURIComponent(selectedRosterMemberId ?? "")}`
-        : "";
+    const query = "";
     const url = mode === "admin" ? `/api/admin/${adminToken}` : `/api/brackets/${token}${query}`;
     const headers: Record<string, string> = {};
     if (lastEtagRef.current?.url === url) {
@@ -148,7 +178,7 @@ export function BracketClient({
       return;
     }
 
-    const result = (await response.json()) as BracketSnapshot & { error?: string };
+    const result = (await response.json()) as (BracketSnapshot | PublicBracketSnapshot) & { error?: string };
     if (!response.ok) {
       setError(result.error ?? "Could not refresh the bracket.");
       return;
@@ -157,6 +187,9 @@ export function BracketClient({
     const etag = response.headers.get("etag");
     lastEtagRef.current = etag ? { url, etag } : null;
     setSnapshot(result);
+    if (mode === "public" && isPublicSnapshot(result)) {
+      setSelectedRosterMemberName(result.selectedRosterMemberName ?? null);
+    }
   });
 
   useEffect(() => {
@@ -273,12 +306,15 @@ export function BracketClient({
     if (mode === "public") {
       void refresh();
     }
-  }, [mode, selectedRosterMemberId]);
+  }, [mode, selectedRosterMemberName]);
 
-  const currentRound = useMemo(
-    () => snapshot.rounds.find((round) => round.id === snapshot.currentRoundId) ?? null,
-    [snapshot],
-  );
+  const currentRound = useMemo(() => {
+    if (isPublicSnapshot(snapshot)) {
+      return snapshot.rounds.find((round) => round.number === snapshot.currentRoundNumber) ?? null;
+    }
+
+    return snapshot.rounds.find((round) => round.id === snapshot.currentRoundId) ?? null;
+  }, [snapshot]);
 
   useEffect(() => {
     if (mode === "history") {
@@ -311,7 +347,10 @@ export function BracketClient({
     // Refresh once per crossed deadline. Without this guard the 1s countdown
     // tick refetched the snapshot every second for as long as a deadline sat
     // in the past (e.g. waiting on a tie-breaker).
-    const deadlineKey = `${currentRound.id}:${currentRound.status}:${deadlineIso}`;
+    const roundKey = isPublicSnapshot(snapshot)
+      ? currentRound.number
+      : (currentRound as BracketSnapshotRound).id;
+    const deadlineKey = `${roundKey}:${currentRound.status}:${deadlineIso}`;
     if (handledDeadlineRef.current === deadlineKey) {
       return;
     }
@@ -329,7 +368,7 @@ export function BracketClient({
   }, [hydrated, snapshot.publicUrl]);
 
   const displayAdminUrl = useMemo(() => {
-    if (!snapshot.adminUrl) {
+    if (isPublicSnapshot(snapshot) || !snapshot.adminUrl) {
       return null;
     }
 
@@ -338,7 +377,7 @@ export function BracketClient({
     }
 
     return new URL(snapshot.adminUrl, window.location.origin).toString();
-  }, [hydrated, snapshot.adminUrl]);
+  }, [hydrated, snapshot]);
 
   const displayCurrentUrl = useMemo(() => {
     if (!hydrated) {
@@ -408,11 +447,17 @@ export function BracketClient({
     };
   }, [currentRound, hydrated, nowTick, snapshot.status]);
 
-  const selectedRosterMemberName = useMemo(
-    () =>
-      snapshot.rosterMembers.find((member) => member.id === selectedRosterMemberId)?.name ?? null,
-    [selectedRosterMemberId, snapshot.rosterMembers],
-  );
+  const selectedRosterMemberDisplayName = useMemo(() => {
+    if (mode === "public") {
+      return selectedRosterMemberName;
+    }
+
+    if (isPublicSnapshot(snapshot)) {
+      return null;
+    }
+
+    return snapshot.rosterMembers.find((member) => member.id === selectedRosterMemberId)?.name ?? null;
+  }, [mode, selectedRosterMemberId, selectedRosterMemberName, snapshot]);
 
   const createNewBracketHref = useMemo(
     () => (adminToken ? `/admin?adminToken=${encodeURIComponent(adminToken)}` : "/admin"),
@@ -425,15 +470,17 @@ export function BracketClient({
   const primaryMatchup = activeMatchups[0] ?? currentRound?.matchups[0] ?? snapshot.rounds[0]?.matchups[0] ?? null;
   const turnout = percent(snapshot.currentRoundUniqueVoters, snapshot.totalPlayers);
   const pendingRosterCount = Math.max(snapshot.totalPlayers - snapshot.currentRoundUniqueVoters, 0);
-  const champion = winnerName(snapshot);
+  const champion = championName(snapshot);
   const isTestBracket = snapshot.kind === "test";
-  const rosterInspectorStatuses = snapshot.currentRoundRosterStatuses.length
-    ? snapshot.currentRoundRosterStatuses
-    : snapshot.rosterMembers.map((member) => ({
-        rosterMemberId: member.id,
-        name: member.name,
-        hasVoted: false,
-      }));
+  const rosterInspectorStatuses = !isPublicSnapshot(snapshot)
+    ? snapshot.currentRoundRosterStatuses.length
+      ? snapshot.currentRoundRosterStatuses
+      : snapshot.rosterMembers.map((member) => ({
+          rosterMemberId: member.id,
+          name: member.name,
+          hasVoted: false,
+        }))
+    : [];
 
   const fallbackInspectedRosterMemberId =
     rosterInspectorStatuses.find((member) => member.hasVoted)?.rosterMemberId ??
@@ -446,48 +493,60 @@ export function BracketClient({
       : fallbackInspectedRosterMemberId;
   const inspectedRosterMember =
     rosterInspectorStatuses.find((member) => member.rosterMemberId === activeInspectedRosterMemberId) ?? null;
-  const inspectedRoundVotes = (currentRound?.matchups ?? []).map((matchup) => {
-    const vote =
-      matchup.adminVotes?.find((entry) => entry.rosterMemberId === activeInspectedRosterMemberId) ?? null;
-    return {
-      matchup,
-      vote,
-    };
-  });
+  const inspectedRoundVotes = !isPublicSnapshot(snapshot)
+    ? (currentRound?.matchups ?? []).map((matchup) => {
+        const adminMatchup = matchup as BracketSnapshotMatchup;
+        const vote =
+          adminMatchup.adminVotes?.find(
+            (entry) => entry.rosterMemberId === activeInspectedRosterMemberId,
+          ) ?? null;
+        return {
+          matchup: adminMatchup,
+          vote,
+        };
+      })
+    : [];
 
-  function handleRosterSelection(nextRosterMemberId: string | null) {
+  function handleRosterSelection(nextRosterMemberName: string) {
     setError(null);
-    setSelectedRosterMemberId(nextRosterMemberId);
-    setIdentityPickerOpen(mode === "public" && !nextRosterMemberId);
+    setSelectedRosterMemberName(nextRosterMemberName);
+    setIdentityPickerOpen(false);
 
     if (mode === "public") {
       void fetch(`/api/brackets/${token}/identity`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rosterMemberId: nextRosterMemberId }),
+        body: JSON.stringify({ rosterMemberName: nextRosterMemberName }),
+      }).then(async (response) => {
+        const result = (await response.json()) as { error?: string };
+        if (!response.ok) {
+          setError(result.error ?? "Could not register your name.");
+          setSelectedRosterMemberName(null);
+          setIdentityPickerOpen(true);
+        }
       });
     }
   }
 
-  async function vote(matchupId: string, entrantId: string) {
+  async function vote(matchupSlot: number, side: "A" | "B") {
     setError(null);
-    if (!selectedRosterMemberId) {
+    if (!selectedRosterMemberName) {
       setError("Choose your name before voting.");
       return;
     }
     const response = await fetch(`/api/brackets/${token}/votes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ matchupId, entrantId, rosterMemberId: selectedRosterMemberId }),
+      body: JSON.stringify({ matchupSlot, side }),
     });
-    const result = (await response.json()) as BracketSnapshot & { error?: string };
+    const result = (await response.json()) as PublicBracketSnapshot & { error?: string };
     if (!response.ok) {
       setError(result.error ?? "Vote failed.");
       return;
     }
 
     setSnapshot(result);
-    setSelectedRosterMemberId(result.selectedRosterMemberId ?? selectedRosterMemberId);
+    setSelectedRosterMemberName(result.selectedRosterMemberName ?? selectedRosterMemberName);
   }
 
   async function advanceNow() {
@@ -639,11 +698,11 @@ export function BracketClient({
     }
   }
 
-  function renderPublicVote(matchup: BracketSnapshotMatchup) {
+  function renderPublicVote(matchup: PublicBracketSnapshotMatchup) {
     const canSeeVoteCounts =
       matchup.status !== "live" ||
       !matchup.voteState.canVote ||
-      Boolean(matchup.voteState.votedEntrantId);
+      Boolean(matchup.voteState.votedSide);
     const votePctA = percent(matchup.votesA, matchup.totalVotes);
     const votePctB = percent(matchup.votesB, matchup.totalVotes);
     const resultBarAClassName = resultBarClassName(
@@ -660,18 +719,19 @@ export function BracketClient({
     );
 
     return (
-      <section className="bw-vote-section" key={matchup.id}>
+      <section className="bw-vote-section" key={`slot-${matchup.slot}`}>
         <div className="bw-vote-prompt">
-          {!selectedRosterMemberId
+          {!selectedRosterMemberName
             ? "Pick your name first, then vote"
-            : matchup.voteState.votedEntrantId
+            : matchup.voteState.votedSide
               ? "✓ Voted — here's how it's going"
               : "Pick your favourite"}
         </div>
         <div className="bw-vote-cards">
           {[matchup.entrantA, matchup.entrantB].map((entrant, index) => {
-            const isVotedWinner = matchup.voteState.votedEntrantId === entrant?.id;
-            const isVotedLoser = Boolean(matchup.voteState.votedEntrantId) && !isVotedWinner;
+            const side = index === 0 ? "A" : "B";
+            const isVotedWinner = matchup.voteState.votedSide === side;
+            const isVotedLoser = Boolean(matchup.voteState.votedSide) && !isVotedWinner;
 
             return (
               <button
@@ -679,15 +739,15 @@ export function BracketClient({
                   isVotedLoser ? "voted-lose" : ""
                 }`}
                 disabled={!matchup.voteState.canVote || !entrant}
-                key={entrant?.id ?? index}
-                onClick={() => entrant && vote(matchup.id, entrant.id)}
+                key={`${matchup.slot}-${side}`}
+                onClick={() => entrant && vote(matchup.slot, side)}
                 type="button"
               >
                 <span className="bw-vote-card-check">✓</span>
                 {renderEntrantImage(entrant, "bw-vote-card-media")}
                 <span className="bw-vote-card-name">{entrantLabel(entrant)}</span>
                 <span className="bw-vote-card-hint">
-                  {matchup.voteState.votedEntrantId ? "" : "Tap to vote"}
+                  {matchup.voteState.votedSide ? "" : "Tap to vote"}
                 </span>
               </button>
             );
@@ -731,28 +791,56 @@ export function BracketClient({
   }
 
   function renderBracketBoard() {
+    const publicView = isPublicSnapshot(snapshot);
+
     return (
       <div className="bw-bracket-wrap">
         <div className="bw-bracket-grid">
-          {snapshot.rounds.map((round) => (
-            <div className="bw-b-col" key={round.id}>
-              <div className={`bw-b-col-header ${currentRound?.id === round.id ? "live" : ""}`}>
+          {snapshot.rounds.map((round) => {
+            const adminRound = round as BracketSnapshotRound;
+            const roundKey = publicView ? `round-${round.number}` : adminRound.id;
+            const isLiveRound = publicView
+              ? currentRound?.number === round.number
+              : (currentRound as BracketSnapshotRound | null)?.id === adminRound.id;
+
+            return (
+            <div className="bw-b-col" key={roundKey}>
+              <div className={`bw-b-col-header ${isLiveRound ? "live" : ""}`}>
                 {round.label}
               </div>
               <div className="bw-b-group">
                 {round.matchups.map((matchup) => {
-                  const winnerA = matchup.winnerEntrantId && matchup.entrantA?.id === matchup.winnerEntrantId;
-                  const winnerB = matchup.winnerEntrantId && matchup.entrantB?.id === matchup.winnerEntrantId;
+                  const adminMatchup = matchup as BracketSnapshotMatchup;
+                  const publicMatchup = matchup as PublicBracketSnapshotMatchup;
+                  const winnerA = publicView
+                    ? Boolean(
+                        publicMatchup.winnerName &&
+                          publicMatchup.entrantA?.name === publicMatchup.winnerName,
+                      )
+                    : adminMatchup.winnerEntrantId &&
+                      adminMatchup.entrantA?.id === adminMatchup.winnerEntrantId;
+                  const winnerB = publicView
+                    ? Boolean(
+                        publicMatchup.winnerName &&
+                          publicMatchup.entrantB?.name === publicMatchup.winnerName,
+                      )
+                    : adminMatchup.winnerEntrantId &&
+                      adminMatchup.entrantB?.id === adminMatchup.winnerEntrantId;
                   const canSeeVoteCounts =
                     mode !== "public" ||
                     matchup.status !== "live" ||
                     !matchup.voteState.canVote ||
-                    Boolean(matchup.voteState.votedEntrantId);
+                    Boolean(
+                      publicView
+                        ? publicMatchup.voteState.votedSide
+                        : adminMatchup.voteState.votedEntrantId,
+                    );
+                  const matchupKey = publicView ? `slot-${matchup.slot}` : adminMatchup.id;
 
                   return (
                     <div
                       className={`bw-b-match ${matchup.status === "live" ? "is-live" : ""}`}
-                      key={matchup.id}
+                      key={matchupKey}
                     >
                       <div className={`bw-b-entry ${winnerA ? "winner" : winnerB ? "loser" : ""}`}>
                         <span className="bw-b-seed">{matchup.entrantA?.seed ?? ""}</span>
@@ -773,7 +861,8 @@ export function BracketClient({
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
           <div className="bw-b-col bw-b-champion">
             <div className="bw-b-col-header live">Champion</div>
             <div className="bw-b-champ-card">
@@ -833,7 +922,7 @@ export function BracketClient({
   }
 
   function renderTieBreakerPanel() {
-    if (!tieBreakerMatchups.length) {
+    if (isPublicSnapshot(snapshot) || !tieBreakerMatchups.length) {
       return null;
     }
 
@@ -846,36 +935,46 @@ export function BracketClient({
           </p>
         </div>
         <div className="bw-tie-list">
-          {tieBreakerMatchups.map((matchup) => (
-            <div className="bw-tie-card" key={matchup.id}>
-              <div className="bw-card-title">{matchupTitle(matchup)}</div>
-              {renderResultBars(matchup)}
+          {tieBreakerMatchups.map((matchup) => {
+            const adminMatchup = matchup as BracketSnapshotMatchup;
+            return (
+            <div className="bw-tie-card" key={adminMatchup.id}>
+              <div className="bw-card-title">{matchupTitle(adminMatchup)}</div>
+              {renderResultBars(adminMatchup)}
               <div className="bw-tie-actions">
                 <button
                   className="bw-btn bw-btn-lime"
-                  disabled={!matchup.entrantA}
-                  onClick={() => resolveTieBreakerNow(matchup, matchup.entrantA)}
+                  disabled={!adminMatchup.entrantA}
+                  onClick={() => resolveTieBreakerNow(adminMatchup, adminMatchup.entrantA)}
                   type="button"
                 >
-                  Advance {entrantLabel(matchup.entrantA)}
+                  Advance {entrantLabel(adminMatchup.entrantA)}
                 </button>
                 <button
                   className="bw-btn bw-btn-lime"
-                  disabled={!matchup.entrantB}
-                  onClick={() => resolveTieBreakerNow(matchup, matchup.entrantB)}
+                  disabled={!adminMatchup.entrantB}
+                  onClick={() => resolveTieBreakerNow(adminMatchup, adminMatchup.entrantB)}
                   type="button"
                 >
-                  Advance {entrantLabel(matchup.entrantB)}
+                  Advance {entrantLabel(adminMatchup.entrantB)}
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
     );
   }
 
   function renderAdminSection() {
+    if (isPublicSnapshot(snapshot)) {
+      return null;
+    }
+
+    const adminSnapshot = snapshot;
+    const adminCurrentRound = currentRound as BracketSnapshotRound | null;
+
     if (adminSection === "roster") {
       return (
         <section className="bw-section-panel active">
@@ -951,8 +1050,11 @@ export function BracketClient({
         <section className="bw-section-panel active">
           <div className="bw-panel-title">Live Results</div>
           <p className="bw-panel-sub">All matchups · current round</p>
-          {snapshot.rounds.map((round) => (
-            <div className={round.id === currentRound?.id ? "bw-card" : "bw-card is-dimmed"} key={round.id}>
+          {adminSnapshot.rounds.map((round) => (
+            <div
+              className={round.id === adminCurrentRound?.id ? "bw-card" : "bw-card is-dimmed"}
+              key={round.id}
+            >
               <div className="bw-card-title">
                 {round.label}
                 <span className={`bw-tag ${round.status === "live" ? "bw-tag-lime" : "bw-tag-muted"}`}>
@@ -1221,7 +1323,7 @@ export function BracketClient({
         {primaryMatchup ? (
           <div className="bw-card">
             <div className="bw-card-title">Current Matchup</div>
-            {renderResultBars(primaryMatchup)}
+            {renderResultBars(primaryMatchup as BracketSnapshotMatchup)}
             <p className="bw-muted">
               {snapshot.currentRoundUniqueVoters} of {snapshot.totalPlayers} roster members have voted
             </p>
@@ -1389,18 +1491,22 @@ export function BracketClient({
             <div className="bw-modal-title" id="identity-modal-title">
               Who are you?
             </div>
-            <p className="bw-modal-sub">Pick your name to cast your vote. One vote per person.</p>
+            <p className="bw-modal-sub">Pick your name to cast your vote. One vote per person, one name per browser.</p>
             <div className="bw-modal-roster">
-              {snapshot.rosterMembers.map((member) => (
-                <button
-                  className="bw-roster-btn"
-                  key={member.id}
-                  onClick={() => handleRosterSelection(member.id)}
-                  type="button"
-                >
-                  {member.name}
-                </button>
-              ))}
+              {isPublicSnapshot(snapshot)
+                ? snapshot.rosterMembers.map((member) => (
+                    <button
+                      className="bw-roster-btn"
+                      disabled={member.claimed && !member.isYou}
+                      key={member.name}
+                      onClick={() => handleRosterSelection(member.name)}
+                      type="button"
+                    >
+                      {member.name}
+                      {member.claimed && !member.isYou ? " (taken)" : ""}
+                    </button>
+                  ))
+                : null}
             </div>
             <p className="bw-modal-footnote">Not on the list? Talk to the admin.</p>
           </section>
@@ -1413,8 +1519,8 @@ export function BracketClient({
         </div>
         <div className="bw-nav-topic">{snapshot.title}</div>
         <button className="bw-nav-identity" onClick={() => setIdentityPickerOpen(true)} type="button">
-          <span className="bw-nav-avatar">{selectedRosterMemberName?.slice(0, 1) ?? "?"}</span>
-          <span>{selectedRosterMemberName ?? "Choose name"}</span>
+          <span className="bw-nav-avatar">{selectedRosterMemberDisplayName?.slice(0, 1) ?? "?"}</span>
+          <span>{selectedRosterMemberDisplayName ?? "Choose name"}</span>
         </button>
       </nav>
 
@@ -1437,7 +1543,7 @@ export function BracketClient({
         {error ? <p className="bw-error-text">{error}</p> : null}
 
         {activeMatchups.length ? (
-          activeMatchups.map((matchup) => renderPublicVote(matchup))
+          activeMatchups.map((matchup) => renderPublicVote(matchup as PublicBracketSnapshotMatchup))
         ) : (
           <section className="bw-vote-section">
             <div className="bw-vote-prompt">{currentRoundBanner.title}</div>

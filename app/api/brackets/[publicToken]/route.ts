@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
-import { getRememberedRosterMemberId } from "@/lib/workquiz/auth";
-import { buildSnapshot, findBracketByPublicToken } from "@/lib/workquiz/bracket";
+import { getOrCreateBrowserToken, getRememberedRosterMemberId } from "@/lib/workquiz/auth";
+import {
+  buildPublicSnapshot,
+  ensureVoterBinding,
+  findBracketByPublicToken,
+} from "@/lib/workquiz/bracket";
 import { jsonWithETag } from "@/lib/workquiz/etag";
+import { rosterMemberIdForBrowser } from "@/lib/workquiz/voter";
 
 export async function GET(
   request: Request,
@@ -24,14 +29,24 @@ export async function GET(
     return NextResponse.json({ error: "Bracket not found." }, { status: 404 });
   }
 
-  const searchParams = new URL(request.url).searchParams;
-  const requestedRosterMemberId = searchParams.get("rosterMemberId");
-  const rememberedRosterMemberId = searchParams.has("rosterMemberId")
-    ? requestedRosterMemberId
-    : await getRememberedRosterMemberId();
-  const rosterMemberId = bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId)
-    ? rememberedRosterMemberId ?? undefined
-    : undefined;
+  const browserToken = await getOrCreateBrowserToken();
+  const rememberedRosterMemberId = await getRememberedRosterMemberId();
+  await ensureVoterBinding({
+    publicToken,
+    browserToken,
+    rememberedRosterMemberId,
+  });
 
-  return jsonWithETag(request, buildSnapshot(bracket, { rosterMemberId }));
+  const refreshedBracket = (await findBracketByPublicToken(publicToken)) ?? bracket;
+  const rosterMemberId =
+    rosterMemberIdForBrowser(refreshedBracket, browserToken) ?? rememberedRosterMemberId;
+
+  return jsonWithETag(
+    request,
+    buildPublicSnapshot(refreshedBracket, {
+      rosterMemberId: refreshedBracket.rosterMembers.some((member) => member.id === rosterMemberId)
+        ? rosterMemberId
+        : null,
+    }),
+  );
 }

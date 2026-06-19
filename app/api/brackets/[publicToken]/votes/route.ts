@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
-import { buildSnapshot, castVote, findBracketByPublicToken } from "@/lib/workquiz/bracket";
+import { getOrCreateBrowserToken } from "@/lib/workquiz/auth";
+import { buildPublicSnapshot, castVote, findBracketByPublicToken } from "@/lib/workquiz/bracket";
+import { rosterMemberIdForBrowser } from "@/lib/workquiz/voter";
 
 export async function POST(
   request: Request,
@@ -10,9 +12,8 @@ export async function POST(
   const { publicToken } = await context.params;
   const bracket = await findBracketByPublicToken(publicToken);
   const body = (await request.json()) as {
-    matchupId?: string;
-    entrantId?: string;
-    rosterMemberId?: string;
+    matchupSlot?: number;
+    side?: "A" | "B";
   };
 
   if (!bracket || bracket.status === "disabled") {
@@ -23,22 +24,26 @@ export async function POST(
     return NextResponse.json({ error: "Bracket not available." }, { status: 404 });
   }
 
-  if (!body.matchupId || !body.entrantId || !body.rosterMemberId) {
-    return NextResponse.json(
-      { error: "matchupId, entrantId, and rosterMemberId are required." },
-      { status: 400 },
-    );
+  if (typeof body.matchupSlot !== "number" || (body.side !== "A" && body.side !== "B")) {
+    return NextResponse.json({ error: "matchupSlot and side are required." }, { status: 400 });
   }
+
+  const browserToken = await getOrCreateBrowserToken();
 
   try {
     const updatedBracket = await castVote({
       publicToken,
-      matchupId: body.matchupId,
-      entrantId: body.entrantId,
-      rosterMemberId: body.rosterMemberId,
+      browserToken,
+      matchupSlot: body.matchupSlot,
+      side: body.side,
     });
 
-    return NextResponse.json(buildSnapshot(updatedBracket, { rosterMemberId: body.rosterMemberId }));
+    const rosterMemberId = rosterMemberIdForBrowser(updatedBracket, browserToken);
+    return NextResponse.json(
+      buildPublicSnapshot(updatedBracket, {
+        rosterMemberId,
+      }),
+    );
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Vote failed." },

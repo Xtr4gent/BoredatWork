@@ -71,6 +71,8 @@ export interface BracketRecord {
   entrants: EntrantRecord[];
   directQualifierEntrantIds?: string[];
   rosterMembers: RosterMemberRecord[];
+  /** browserToken -> rosterMemberId; optional on legacy brackets until first bind */
+  voterBindings?: Record<string, string>;
   rounds: RoundRecord[];
 }
 
@@ -183,4 +185,70 @@ export interface BracketSnapshot {
   selectedRosterMemberId?: string | null;
   currentRoundRosterStatuses: BracketSnapshotRosterStatus[];
   adminHistory?: AdminHistoryItem[];
+}
+
+export interface PublicBracketSnapshotRosterMember {
+  name: string;
+  claimed: boolean;
+  isYou: boolean;
+}
+
+export interface PublicBracketSnapshotEntrant {
+  name: string;
+  seed: number;
+  imageUrl?: string;
+}
+
+export interface PublicBracketSnapshotVoteState {
+  canVote: boolean;
+  votedSide: "A" | "B" | null;
+}
+
+export interface PublicBracketSnapshotMatchup {
+  slot: number;
+  status: MatchupStatus;
+  entrantA: PublicBracketSnapshotEntrant | null;
+  entrantB: PublicBracketSnapshotEntrant | null;
+  winnerName: string | null;
+  votesA: number;
+  votesB: number;
+  totalVotes: number;
+  voteState: PublicBracketSnapshotVoteState;
+}
+
+export interface PublicBracketSnapshotRound {
+  number: number;
+  label: string;
+  startsAt: string;
+  endsAt: string;
+  status: RoundStatus;
+  matchups: PublicBracketSnapshotMatchup[];
+}
+
+export interface PublicBracketSnapshotRosterStatus {
+  name: string;
+  hasVoted: boolean;
+}
+
+export interface PublicBracketSnapshot {
+  id: string;
+  kind: BracketKind;
+  title: string;
+  slug: string;
+  status: BracketStatus;
+  isCurrentPublic: boolean;
+  publicUrl: string;
+  seedingMode: SeedingMode;
+  createdAt: string;
+  publishedAt: string;
+  totalPlayers: number;
+  roundDurationHours: number;
+  entrants: PublicBracketSnapshotEntrant[];
+  rosterMembers: PublicBracketSnapshotRosterMember[];
+  rounds: PublicBracketSnapshotRound[];
+  currentRoundNumber: number | null;
+  currentRoundUniqueVoters: number;
+  totalVotes: number;
+  selectedRosterMemberName: string | null;
+  currentRoundRosterStatuses: PublicBracketSnapshotRosterStatus[];
 }

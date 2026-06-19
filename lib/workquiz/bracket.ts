@@ -16,9 +16,17 @@ import {
   CreateBracketInput,
   EntrantRecord,
   MatchupRecord,
+  PublicBracketSnapshot,
+  PublicBracketSnapshotRosterStatus,
   RosterMemberRecord,
   RoundRecord,
 } from "@/lib/workquiz/types";
+import {
+  bindBrowserToRosterMember,
+  findRosterMemberByName,
+  rosterMemberIdForBrowser,
+  tryMigrateVoterBinding,
+} from "@/lib/workquiz/voter";
 import {
   addHours,
   hashValue,
@@ -436,6 +444,7 @@ export async function createBracket(input: CreateBracketInput) {
     entrants,
     directQualifierEntrantIds,
     rosterMembers,
+    voterBindings: {},
     rounds: [],
   };
 
@@ -747,11 +756,84 @@ export async function findBracketByAdminToken(adminToken: string) {
   return (await readStore()).brackets.find((bracket) => bracket.adminTokenHash === tokenHash) ?? null;
 }
 
+export async function ensureVoterBinding(params: {
+  publicToken: string;
+  browserToken: string;
+  rememberedRosterMemberId?: string | null;
+}) {
+  let resolvedRosterMemberId: string | null = null;
+
+  await updateStore((store) => {
+    const bracket = store.brackets.find((entry) => entry.publicToken === params.publicToken);
+    if (!bracket) {
+      return store;
+    }
+
+    resolvedRosterMemberId = tryMigrateVoterBinding(
+      bracket,
+      params.browserToken,
+      params.rememberedRosterMemberId ?? null,
+    );
+    return store;
+  });
+
+  return resolvedRosterMemberId;
+}
+
+export async function claimVoterIdentity(params: {
+  publicToken: string;
+  browserToken: string;
+  rosterMemberName: string;
+}) {
+  let resolvedRosterMemberId: string | null = null;
+  let claimError: string | null = null;
+
+  const updatedStore = await updateStore((store) => {
+    const bracket = store.brackets.find((entry) => entry.publicToken === params.publicToken);
+    if (!bracket) {
+      claimError = "Bracket not found.";
+      return store;
+    }
+
+    if (bracket.status === "disabled") {
+      claimError = "This bracket is no longer available.";
+      return store;
+    }
+
+    const member = findRosterMemberByName(bracket, params.rosterMemberName);
+    if (!member) {
+      claimError = "Roster member not found.";
+      return store;
+    }
+
+    const result = bindBrowserToRosterMember(bracket, params.browserToken, member.id);
+    if (!result.ok) {
+      claimError = result.error;
+      return store;
+    }
+
+    resolvedRosterMemberId = member.id;
+    return store;
+  });
+
+  if (claimError) {
+    throw new Error(claimError);
+  }
+
+  const updated =
+    updatedStore.brackets.find((bracket) => bracket.publicToken === params.publicToken) ?? null;
+  if (!updated || !resolvedRosterMemberId) {
+    throw new Error("Could not register your name.");
+  }
+
+  return { bracket: updated, rosterMemberId: resolvedRosterMemberId };
+}
+
 export async function castVote(params: {
   publicToken: string;
-  matchupId: string;
-  entrantId: string;
-  rosterMemberId: string;
+  browserToken: string;
+  matchupSlot: number;
+  side: "A" | "B";
 }) {
   let updatedBracketId: string | null = null;
 
@@ -765,27 +847,29 @@ export async function castVote(params: {
       throw new Error("This bracket is no longer available.");
     }
 
+    const rosterMemberId = rosterMemberIdForBrowser(bracket, params.browserToken);
+    if (!rosterMemberId) {
+      throw new Error("Choose your name before voting.");
+    }
+
     advanceBracket(bracket, new Date());
     const liveRound = bracket.rounds.find((round) => round.status === "live");
     if (!liveRound) {
       throw new Error("There is no live round right now.");
     }
 
-    const matchup = liveRound.matchups.find((entry) => entry.id === params.matchupId);
+    const matchup = liveRound.matchups.find((entry) => entry.slot === params.matchupSlot);
     if (!matchup || matchup.status !== "live") {
       throw new Error("This matchup is not open for voting.");
     }
 
-    if (!([matchup.entrantAId, matchup.entrantBId] as Array<string | null>).includes(params.entrantId)) {
+    const entrantId = params.side === "A" ? matchup.entrantAId : matchup.entrantBId;
+    if (!entrantId) {
       throw new Error("Invalid entrant.");
     }
 
-    if (!bracket.rosterMembers.some((member) => member.id === params.rosterMemberId)) {
-      throw new Error("Select your name before voting.");
-    }
-
     const rosterAliases = buildRosterAliasMap(bracket);
-    const equivalentRosterIds = rosterAliases.get(params.rosterMemberId) ?? new Set([params.rosterMemberId]);
+    const equivalentRosterIds = rosterAliases.get(rosterMemberId) ?? new Set([rosterMemberId]);
     const existingVote = matchup.votes.find((vote) => equivalentRosterIds.has(vote.rosterMemberId));
     if (existingVote) {
       throw new Error("This person already voted in this matchup.");
@@ -793,8 +877,8 @@ export async function castVote(params: {
 
     matchup.votes.push({
       id: nanoid(),
-      rosterMemberId: params.rosterMemberId,
-      entrantId: params.entrantId,
+      rosterMemberId,
+      entrantId,
       createdAt: new Date().toISOString(),
     });
     matchup.updatedAt = new Date().toISOString();
@@ -816,6 +900,7 @@ export async function castVote(params: {
 export function restartBracket(bracket: BracketRecord) {
   const baseStartsAt = bracket.rounds[0]?.startsAt ?? new Date().toISOString();
   bracket.status = "live";
+  bracket.voterBindings = {};
   bracket.rounds = buildRoundsForBracket(bracket, baseStartsAt, bracket.roundDurationHours);
 }
 
@@ -1120,6 +1205,135 @@ export function buildSnapshot(
     selectedRosterMemberId: options?.rosterMemberId ?? null,
     currentRoundRosterStatuses,
     adminHistory: options?.includeAdminUrl ? options.adminHistory ?? [] : undefined,
+  };
+}
+
+export function buildPublicSnapshot(
+  bracket: BracketRecord,
+  options?: {
+    rosterMemberId?: string | null;
+  },
+): PublicBracketSnapshot {
+  if (bracket.status !== "disabled") {
+    advanceBracket(bracket, new Date());
+  }
+
+  const entrants = entrantMap(bracket);
+  const rosterMemberId = options?.rosterMemberId ?? null;
+  const rosterMemberName =
+    rosterMemberId
+      ? (bracket.rosterMembers.find((member) => member.id === rosterMemberId)?.name ?? null)
+      : null;
+  const claimedRosterMemberIds = new Set(Object.values(bracket.voterBindings ?? {}));
+  const rosterAliases = buildRosterAliasMap(bracket);
+  const equivalentRosterIds = rosterMemberId
+    ? (rosterAliases.get(rosterMemberId) ?? new Set([rosterMemberId]))
+    : null;
+
+  const currentRoundRecord =
+    bracket.rounds.find((round) => round.status === "live") ??
+    bracket.rounds.find((round) => round.status === "tiebreaker") ??
+    bracket.rounds.find((round) => round.status === "upcoming") ??
+    null;
+  const currentRoundVotingMatchups =
+    currentRoundRecord?.matchups.filter((matchup) => matchup.entrantAId && matchup.entrantBId) ?? [];
+  const currentRoundRosterStatuses: PublicBracketSnapshotRosterStatus[] = currentRoundRecord
+    ? bracket.rosterMembers.map((member) => {
+        const memberEquivalentIds = rosterAliases.get(member.id) ?? new Set([member.id]);
+        const hasVoted =
+          currentRoundVotingMatchups.length > 0 &&
+          currentRoundVotingMatchups.every((matchup) =>
+            matchup.votes.some((vote) => memberEquivalentIds.has(vote.rosterMemberId)),
+          );
+
+        return {
+          name: member.name,
+          hasVoted,
+        };
+      })
+    : [];
+
+  const rounds = bracket.rounds.map((round) => ({
+    number: round.number,
+    label: round.label,
+    startsAt: round.startsAt,
+    endsAt: round.endsAt,
+    status: round.status,
+    matchups: round.matchups.map((matchup) => {
+      const counts = voteCounts(matchup);
+      const votesA = matchup.entrantAId ? (counts[matchup.entrantAId] ?? 0) : 0;
+      const votesB = matchup.entrantBId ? (counts[matchup.entrantBId] ?? 0) : 0;
+      const voted =
+        equivalentRosterIds
+          ? matchup.votes.find((vote) => equivalentRosterIds.has(vote.rosterMemberId))
+          : null;
+      let votedSide: "A" | "B" | null = null;
+      if (voted?.entrantId === matchup.entrantAId) {
+        votedSide = "A";
+      } else if (voted?.entrantId === matchup.entrantBId) {
+        votedSide = "B";
+      }
+
+      const entrantA = matchup.entrantAId ? entrants.get(matchup.entrantAId) ?? null : null;
+      const entrantB = matchup.entrantBId ? entrants.get(matchup.entrantBId) ?? null : null;
+      const winnerEntrant = matchup.winnerEntrantId ? entrants.get(matchup.winnerEntrantId) ?? null : null;
+
+      return {
+        slot: matchup.slot,
+        status: matchup.status,
+        entrantA: entrantA
+          ? { name: entrantA.name, seed: entrantA.seed, imageUrl: entrantA.imageUrl }
+          : null,
+        entrantB: entrantB
+          ? { name: entrantB.name, seed: entrantB.seed, imageUrl: entrantB.imageUrl }
+          : null,
+        winnerName: winnerEntrant?.name ?? null,
+        votesA,
+        votesB,
+        totalVotes: votesA + votesB,
+        voteState: {
+          canVote: round.status === "live" && matchup.status === "live" && !voted,
+          votedSide,
+        },
+      };
+    }),
+  }));
+
+  const totalVotes = rounds.reduce(
+    (sum, round) => sum + round.matchups.reduce((roundSum, matchup) => roundSum + matchup.totalVotes, 0),
+    0,
+  );
+  const currentRoundUniqueVoters = currentRoundRosterStatuses.filter((member) => member.hasVoted).length;
+
+  return {
+    id: bracket.id,
+    kind: bracketKind(bracket),
+    title: bracket.title,
+    slug: bracket.slug,
+    status: bracket.status,
+    isCurrentPublic: bracket.isCurrentPublic,
+    publicUrl: "/voting",
+    seedingMode: bracket.seedingMode,
+    createdAt: bracket.createdAt,
+    publishedAt: bracket.publishedAt,
+    totalPlayers: bracket.totalPlayers ?? bracket.entrants.length,
+    roundDurationHours: bracket.roundDurationHours,
+    entrants: bracket.entrants.map((entrant) => ({
+      name: entrant.name,
+      seed: entrant.seed,
+      imageUrl: entrant.imageUrl,
+    })),
+    rosterMembers: bracket.rosterMembers.map((member) => ({
+      name: member.name,
+      claimed: claimedRosterMemberIds.has(member.id),
+      isYou: member.id === rosterMemberId,
+    })),
+    rounds,
+    currentRoundNumber: currentRoundRecord?.number ?? null,
+    currentRoundUniqueVoters,
+    totalVotes,
+    selectedRosterMemberName: rosterMemberName,
+    currentRoundRosterStatuses,
   };
 }
 
