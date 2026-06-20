@@ -154,7 +154,7 @@ test("SECURITY: one browser cannot claim two roster names", async () => {
   );
 });
 
-test("SECURITY: two browsers cannot claim the same roster name", async () => {
+test("SECURITY: a browser can reclaim a roster name after cookies are cleared", async () => {
   await resetStore();
   const { bracket } = await createBracket({
     title: "Smoke",
@@ -172,15 +172,25 @@ test("SECURITY: two browsers cannot claim the same roster name", async () => {
     rosterMemberName: roster[0],
   });
 
-  await assert.rejects(
-    () =>
-      claimVoterIdentity({
-        publicToken: bracket.publicToken,
-        browserToken: "browser-b",
-        rosterMemberName: roster[0],
-      }),
-    /already registered on another device/,
-  );
+  const reclaimed = await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "browser-b",
+    rosterMemberName: roster[0],
+  });
+
+  assert.equal(reclaimed.rosterMemberId, bracket.rosterMembers[0].id);
+
+  const store = await updateStore((s) => s);
+  const stored = store.brackets.find((entry) => entry.publicToken === bracket.publicToken)!;
+  assert.equal(stored.voterBindings?.["browser-b"], bracket.rosterMembers[0].id);
+  assert.equal(stored.voterBindings?.["browser-a"], undefined);
+
+  await castVote({
+    publicToken: bracket.publicToken,
+    browserToken: "browser-b",
+    matchupSlot: bracket.rounds[0].matchups[0].slot,
+    side: "A",
+  });
 });
 
 test("SECURITY: incognito stacking requires a fresh browser per fake voter", async () => {

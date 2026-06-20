@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { BracketClient } from "@/components/BracketClient";
-import { getBrowserToken, getRememberedRosterMemberId } from "@/lib/workquiz/auth";
+import { getBrowserToken } from "@/lib/workquiz/auth";
 import { buildPublicSnapshot, findBracketByAdminToken } from "@/lib/workquiz/bracket";
 import { rosterMemberIdForBrowser } from "@/lib/workquiz/voter";
 
@@ -42,14 +42,7 @@ export default async function TestVotingPage({
   }
 
   const browserToken = await getBrowserToken();
-  const rememberedRosterMemberId = await getRememberedRosterMemberId();
-  const boundRosterMemberId = browserToken ? rosterMemberIdForBrowser(bracket, browserToken) : null;
-  const rosterMemberId =
-    boundRosterMemberId ??
-    (bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId)
-      ? rememberedRosterMemberId
-      : null);
-
+  const rosterMemberId = browserToken ? rosterMemberIdForBrowser(bracket, browserToken) : null;
   const snapshot = buildPublicSnapshot(bracket, { rosterMemberId });
 
   return <BracketClient initialSnapshot={snapshot} mode="public" token={bracket.publicToken} />;

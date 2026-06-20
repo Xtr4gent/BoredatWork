@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
 import { getOrCreateBrowserToken, setRememberedRosterMemberId } from "@/lib/workquiz/auth";
-import { claimVoterIdentity, findBracketByPublicToken } from "@/lib/workquiz/bracket";
+import { buildPublicSnapshot, claimVoterIdentity, findBracketByPublicToken } from "@/lib/workquiz/bracket";
 
 export async function POST(
   request: Request,
@@ -29,14 +29,18 @@ export async function POST(
   const browserToken = await getOrCreateBrowserToken();
 
   try {
-    const { rosterMemberId } = await claimVoterIdentity({
+    const { bracket: updated, rosterMemberId } = await claimVoterIdentity({
       publicToken,
       browserToken,
       rosterMemberName,
     });
 
     await setRememberedRosterMemberId(rosterMemberId);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(
+      buildPublicSnapshot(updated, {
+        rosterMemberId,
+      }),
+    );
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not register your name." },

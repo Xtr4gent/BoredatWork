@@ -806,7 +806,7 @@ export async function claimVoterIdentity(params: {
       return store;
     }
 
-    const result = bindBrowserToRosterMember(bracket, params.browserToken, member.id);
+    const result = bindBrowserToRosterMember(bracket, params.browserToken, member.id, { rebind: true });
     if (!result.ok) {
       claimError = result.error;
       return store;

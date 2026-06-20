@@ -33,10 +33,20 @@ export function findRosterMemberByName(bracket: BracketRecord, rosterMemberName:
   return bracket.rosterMembers.find((member) => normalizeRosterName(member.name) === target) ?? null;
 }
 
+export function releaseRosterMemberBinding(bracket: BracketRecord, rosterMemberId: string) {
+  ensureVoterBindings(bracket);
+  for (const [token, memberId] of Object.entries(bracket.voterBindings!)) {
+    if (memberId === rosterMemberId) {
+      delete bracket.voterBindings![token];
+    }
+  }
+}
+
 export function bindBrowserToRosterMember(
   bracket: BracketRecord,
   browserToken: string,
   rosterMemberId: string,
+  options?: { rebind?: boolean },
 ): { ok: true } | { ok: false; error: string } {
   ensureVoterBindings(bracket);
 
@@ -49,8 +59,12 @@ export function bindBrowserToRosterMember(
 
   const existingForMember = browserTokenForRosterMember(bracket, rosterMemberId);
   if (existingForMember && existingForMember !== browserToken) {
-    const name = bracket.rosterMembers.find((member) => member.id === rosterMemberId)?.name ?? "That name";
-    return { ok: false, error: `${name} is already registered on another device.` };
+    if (!options?.rebind) {
+      const name = bracket.rosterMembers.find((member) => member.id === rosterMemberId)?.name ?? "That name";
+      return { ok: false, error: `${name} is already registered on another device.` };
+    }
+
+    delete bracket.voterBindings![existingForMember];
   }
 
   bracket.voterBindings![browserToken] = rosterMemberId;
@@ -74,10 +88,8 @@ export function tryMigrateVoterBinding(
     return null;
   }
 
-  if (isRosterMemberClaimed(bracket, rememberedRosterMemberId)) {
-    return null;
-  }
-
-  const result = bindBrowserToRosterMember(bracket, browserToken, rememberedRosterMemberId);
+  const result = bindBrowserToRosterMember(bracket, browserToken, rememberedRosterMemberId, {
+    rebind: true,
+  });
   return result.ok ? rememberedRosterMemberId : null;
 }

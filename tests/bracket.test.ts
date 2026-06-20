@@ -1188,13 +1188,12 @@ test("claimVoterIdentity binds one browser to one roster name", async () => {
   });
   assert.equal(first.rosterMemberId, bracket.rosterMembers[0].id);
 
-  await assert.rejects(() =>
-    claimVoterIdentity({
-      publicToken: bracket.publicToken,
-      browserToken: "browser-b",
-      rosterMemberName: roster[0],
-    }),
-  );
+  const reclaimed = await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "browser-b",
+    rosterMemberName: roster[0],
+  });
+  assert.equal(reclaimed.rosterMemberId, bracket.rosterMembers[0].id);
 
   await assert.rejects(() =>
     claimVoterIdentity({

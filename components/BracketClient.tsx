@@ -156,6 +156,7 @@ export function BracketClient(props: BracketClientProps) {
   const [identityPickerOpen, setIdentityPickerOpen] = useState(
     mode === "public" && !initialSnapshot.selectedRosterMemberName,
   );
+  const [identityReady, setIdentityReady] = useState(mode !== "public");
   const [adminSection, setAdminSection] = useState<AdminSection>("live");
   const [inspectedRosterMemberId, setInspectedRosterMemberId] = useState<string | null>(null);
   const hydrated = useHydrated();
@@ -189,6 +190,10 @@ export function BracketClient(props: BracketClientProps) {
     setSnapshot(result);
     if (mode === "public" && isPublicSnapshot(result)) {
       setSelectedRosterMemberName(result.selectedRosterMemberName ?? null);
+      setIdentityReady(true);
+      if (result.selectedRosterMemberName) {
+        setIdentityPickerOpen(false);
+      }
     }
   });
 
@@ -507,31 +512,42 @@ export function BracketClient(props: BracketClientProps) {
       })
     : [];
 
-  function handleRosterSelection(nextRosterMemberName: string) {
+  async function handleRosterSelection(nextRosterMemberName: string) {
     setError(null);
-    setSelectedRosterMemberName(nextRosterMemberName);
-    setIdentityPickerOpen(false);
 
     if (mode === "public") {
-      void fetch(`/api/brackets/${token}/identity`, {
+      const response = await fetch(`/api/brackets/${token}/identity`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rosterMemberName: nextRosterMemberName }),
-      }).then(async (response) => {
-        const result = (await response.json()) as { error?: string };
-        if (!response.ok) {
-          setError(result.error ?? "Could not register your name.");
-          setSelectedRosterMemberName(null);
-          setIdentityPickerOpen(true);
-        }
       });
+      const result = (await response.json()) as PublicBracketSnapshot & { error?: string };
+      if (!response.ok) {
+        setError(result.error ?? "Could not register your name.");
+        setIdentityPickerOpen(true);
+        return;
+      }
+
+      setSnapshot(result);
+      setSelectedRosterMemberName(result.selectedRosterMemberName ?? nextRosterMemberName);
+      setIdentityPickerOpen(false);
+      setIdentityReady(true);
+      return;
     }
+
+    setSelectedRosterMemberName(nextRosterMemberName);
+    setIdentityPickerOpen(false);
   }
 
   async function vote(matchupSlot: number, side: "A" | "B") {
     setError(null);
+    if (!identityReady) {
+      setError("Still connecting your name. Try again in a moment.");
+      return;
+    }
     if (!selectedRosterMemberName) {
       setError("Choose your name before voting.");
+      setIdentityPickerOpen(true);
       return;
     }
     const response = await fetch(`/api/brackets/${token}/votes`, {
@@ -1491,19 +1507,20 @@ export function BracketClient(props: BracketClientProps) {
             <div className="bw-modal-title" id="identity-modal-title">
               Who are you?
             </div>
-            <p className="bw-modal-sub">Pick your name to cast your vote. One vote per person, one name per browser.</p>
+            <p className="bw-modal-sub">
+              Pick your name to cast your vote. Tap your name again if you cleared cookies or switched browsers.
+            </p>
             <div className="bw-modal-roster">
               {isPublicSnapshot(snapshot)
                 ? snapshot.rosterMembers.map((member) => (
                     <button
-                      className="bw-roster-btn"
-                      disabled={member.claimed && !member.isYou}
+                      className={`bw-roster-btn ${member.isYou ? "selected" : ""}`}
                       key={member.name}
-                      onClick={() => handleRosterSelection(member.name)}
+                      onClick={() => void handleRosterSelection(member.name)}
                       type="button"
                     >
                       {member.name}
-                      {member.claimed && !member.isYou ? " (taken)" : ""}
+                      {member.isYou ? " (you)" : member.claimed ? " (tap to use here)" : ""}
                     </button>
                   ))
                 : null}
