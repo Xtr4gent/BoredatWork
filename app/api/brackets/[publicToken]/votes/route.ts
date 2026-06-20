@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
-import { getOrCreateBrowserToken } from "@/lib/workquiz/auth";
-import { buildPublicSnapshot, castVote, findBracketByPublicToken } from "@/lib/workquiz/bracket";
+import { getOrCreateBrowserToken, getRememberedRosterMemberId } from "@/lib/workquiz/auth";
+import {
+  buildPublicSnapshot,
+  castVote,
+  ensureVoterBinding,
+  findBracketByPublicToken,
+} from "@/lib/workquiz/bracket";
 import { rosterMemberIdForBrowser } from "@/lib/workquiz/voter";
 
 export async function POST(
@@ -29,6 +34,12 @@ export async function POST(
   }
 
   const browserToken = await getOrCreateBrowserToken();
+  const rememberedRosterMemberId = await getRememberedRosterMemberId();
+  await ensureVoterBinding({
+    publicToken,
+    browserToken,
+    rememberedRosterMemberId,
+  });
 
   try {
     const updatedBracket = await castVote({

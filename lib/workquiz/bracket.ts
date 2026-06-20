@@ -904,6 +904,10 @@ export function restartBracket(bracket: BracketRecord) {
   bracket.rounds = buildRoundsForBracket(bracket, baseStartsAt, bracket.roundDurationHours);
 }
 
+export function clearVoterBindings(bracket: BracketRecord) {
+  bracket.voterBindings = {};
+}
+
 export function disableBracket(bracket: BracketRecord) {
   bracket.status = "disabled";
   bracket.isCurrentPublic = false;

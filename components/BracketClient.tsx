@@ -604,6 +604,30 @@ export function BracketClient(props: BracketClientProps) {
     setSnapshot(result);
   }
 
+  async function resetVoterBindingsNow() {
+    if (!adminToken) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "Reset all name registrations? Votes stay as they are. Everyone will pick their name again on /voting.",
+      )
+    ) {
+      return;
+    }
+
+    setError(null);
+    const response = await fetch(`/api/admin/${adminToken}/bindings/reset`, { method: "POST" });
+    const result = (await response.json()) as BracketSnapshot & { error?: string };
+    if (!response.ok) {
+      setError(result.error ?? "Could not reset voter registrations.");
+      return;
+    }
+
+    setSnapshot(result);
+  }
+
   async function shutDownNow() {
     if (!adminToken) {
       return;
@@ -1264,6 +1288,19 @@ export function BracketClient(props: BracketClientProps) {
               ? "These actions only affect this private test bracket. Confirm prompts are required."
               : "These actions change the active tournament. Confirm prompts are required."}
           </p>
+          <div className="bw-danger-card">
+            <div className="bw-danger-card-header">
+              <div>
+                <div className="bw-danger-card-title">Reset Name Registrations</div>
+                <div className="bw-danger-card-desc">
+                  Clears stuck &quot;name taken&quot; issues without removing any votes. Send everyone back to /voting to pick their name again.
+                </div>
+              </div>
+              <button className="bw-btn bw-btn-danger" onClick={resetVoterBindingsNow} type="button">
+                Reset Names
+              </button>
+            </div>
+          </div>
           <div className="bw-danger-card">
             <div className="bw-danger-card-header">
               <div>
