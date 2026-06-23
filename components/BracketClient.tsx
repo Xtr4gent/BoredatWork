@@ -156,7 +156,14 @@ export function BracketClient(props: BracketClientProps) {
   const [identityPickerOpen, setIdentityPickerOpen] = useState(
     mode === "public" && !initialSnapshot.selectedRosterMemberName,
   );
-  const [identityReady, setIdentityReady] = useState(mode !== "public");
+  const [identityReady, setIdentityReady] = useState(
+    () =>
+      mode !== "public" ||
+      Boolean(
+        isPublicSnapshot(initialSnapshot) && initialSnapshot.selectedRosterMemberName,
+      ),
+  );
+  const [pendingVotes, setPendingVotes] = useState<Record<number, "A" | "B">>({});
   const [adminSection, setAdminSection] = useState<AdminSection>("live");
   const [inspectedRosterMemberId, setInspectedRosterMemberId] = useState<string | null>(null);
   const [rosterAddText, setRosterAddText] = useState("");
@@ -518,6 +525,11 @@ export function BracketClient(props: BracketClientProps) {
     setError(null);
 
     if (mode === "public") {
+      const previousName = selectedRosterMemberName;
+      setSelectedRosterMemberName(nextRosterMemberName);
+      setIdentityPickerOpen(false);
+      setIdentityReady(true);
+
       const response = await fetch(`/api/brackets/${token}/identity`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -525,15 +537,15 @@ export function BracketClient(props: BracketClientProps) {
       });
       const result = (await response.json()) as PublicBracketSnapshot & { error?: string };
       if (!response.ok) {
+        setSelectedRosterMemberName(previousName);
         setError(result.error ?? "Could not register your name.");
         setIdentityPickerOpen(true);
+        setIdentityReady(Boolean(previousName));
         return;
       }
 
       setSnapshot(result);
       setSelectedRosterMemberName(result.selectedRosterMemberName ?? nextRosterMemberName);
-      setIdentityPickerOpen(false);
-      setIdentityReady(true);
       return;
     }
 
@@ -552,12 +564,25 @@ export function BracketClient(props: BracketClientProps) {
       setIdentityPickerOpen(true);
       return;
     }
+    if (pendingVotes[matchupSlot]) {
+      return;
+    }
+
+    setPendingVotes((previous) => ({ ...previous, [matchupSlot]: side }));
+
     const response = await fetch(`/api/brackets/${token}/votes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ matchupSlot, side }),
     });
     const result = (await response.json()) as PublicBracketSnapshot & { error?: string };
+
+    setPendingVotes((previous) => {
+      const next = { ...previous };
+      delete next[matchupSlot];
+      return next;
+    });
+
     if (!response.ok) {
       setError(result.error ?? "Vote failed.");
       return;
@@ -776,10 +801,13 @@ export function BracketClient(props: BracketClientProps) {
   }
 
   function renderPublicVote(matchup: PublicBracketSnapshotMatchup) {
+    const pendingSide = pendingVotes[matchup.slot];
+    const votedSide = pendingSide ?? matchup.voteState.votedSide;
+    const canVote = !pendingSide && matchup.voteState.canVote;
     const canSeeVoteCounts =
       matchup.status !== "live" ||
-      !matchup.voteState.canVote ||
-      Boolean(matchup.voteState.votedSide);
+      !canVote ||
+      Boolean(votedSide);
     const votePctA = percent(matchup.votesA, matchup.totalVotes);
     const votePctB = percent(matchup.votesB, matchup.totalVotes);
     const resultBarAClassName = resultBarClassName(
@@ -797,25 +825,28 @@ export function BracketClient(props: BracketClientProps) {
 
     return (
       <section className="bw-vote-section" key={`slot-${matchup.slot}`}>
-        {!selectedRosterMemberName || matchup.voteState.votedSide ? (
+        {!selectedRosterMemberName || votedSide ? (
           <div className="bw-vote-prompt">
             {!selectedRosterMemberName
               ? "Pick your name first, then vote"
-              : "✓ Voted — here's how it's going"}
+              : pendingSide
+                ? "Submitting your vote..."
+                : "✓ Voted — here's how it's going"}
           </div>
         ) : null}
         <div className="bw-vote-cards">
           {[matchup.entrantA, matchup.entrantB].map((entrant, index) => {
             const side = index === 0 ? "A" : "B";
-            const isVotedWinner = matchup.voteState.votedSide === side;
-            const isVotedLoser = Boolean(matchup.voteState.votedSide) && !isVotedWinner;
+            const isVotedWinner = votedSide === side;
+            const isVotedLoser = Boolean(votedSide) && !isVotedWinner;
+            const isPendingSelection = pendingSide === side;
 
             return (
               <button
                 className={`bw-vote-card ${isVotedWinner ? "voted-win" : ""} ${
                   isVotedLoser ? "voted-lose" : ""
-                }`}
-                disabled={!matchup.voteState.canVote || !entrant}
+                } ${isPendingSelection && !isVotedWinner ? "is-selected" : ""}`}
+                disabled={!canVote || !entrant}
                 key={`${matchup.slot}-${side}`}
                 onClick={() => entrant && vote(matchup.slot, side)}
                 type="button"
@@ -824,7 +855,7 @@ export function BracketClient(props: BracketClientProps) {
                 {renderEntrantImage(entrant, "bw-vote-card-media")}
                 <span className="bw-vote-card-name">{entrantLabel(entrant)}</span>
                 <span className="bw-vote-card-hint">
-                  {matchup.voteState.votedSide ? "" : "Tap to vote"}
+                  {votedSide ? "" : "Tap to vote"}
                 </span>
               </button>
             );
@@ -1614,7 +1645,9 @@ export function BracketClient(props: BracketClientProps) {
               {isPublicSnapshot(snapshot)
                 ? snapshot.rosterMembers.map((member) => (
                     <button
-                      className={`bw-roster-btn ${member.isYou ? "selected" : ""}`}
+                      className={`bw-roster-btn ${
+                        member.isYou || member.name === selectedRosterMemberName ? "selected" : ""
+                      }`}
                       key={member.name}
                       onClick={() => void handleRosterSelection(member.name)}
                       type="button"
