@@ -908,6 +908,63 @@ export function clearVoterBindings(bracket: BracketRecord) {
   bracket.voterBindings = {};
 }
 
+function normalizeAddedRosterName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+export async function addRosterMembers(params: { adminToken: string; names: string[] }) {
+  const names = params.names.map((name) => normalizeAddedRosterName(name)).filter(Boolean);
+  if (!names.length) {
+    throw new Error("Add at least one roster member name.");
+  }
+
+  let updatedBracketId: string | null = null;
+
+  const updatedStore = await updateStore((store) => {
+    const bracket = store.brackets.find((entry) => entry.adminTokenHash === hashValue(params.adminToken));
+    if (!bracket) {
+      throw new Error("Bracket not found.");
+    }
+
+    if (bracket.status !== "live") {
+      throw new Error("Roster members can only be added while the tournament is live.");
+    }
+
+    const existingNames = new Set(bracket.rosterMembers.map((member) => normalizeRosterName(member.name)));
+    const batchNames = new Set<string>();
+
+    for (const name of names) {
+      const normalizedName = normalizeRosterName(name);
+      if (existingNames.has(normalizedName)) {
+        throw new Error(`${name} is already on the roster.`);
+      }
+      if (batchNames.has(normalizedName)) {
+        throw new Error(`Duplicate name in request: ${name}.`);
+      }
+      batchNames.add(normalizedName);
+    }
+
+    for (const name of names) {
+      bracket.rosterMembers.push({
+        id: nanoid(),
+        name,
+      });
+    }
+
+    bracket.totalPlayers = bracket.rosterMembers.length;
+    updatedBracketId = bracket.id;
+    return store;
+  });
+
+  const updated = updatedStore.brackets.find((bracket) => bracket.id === updatedBracketId) ?? null;
+  if (!updated) {
+    throw new Error("Bracket not found.");
+  }
+
+  publish(updated.publicToken, { type: "roster-updated" });
+  return updated;
+}
+
 export function disableBracket(bracket: BracketRecord) {
   bracket.status = "disabled";
   bracket.isCurrentPublic = false;

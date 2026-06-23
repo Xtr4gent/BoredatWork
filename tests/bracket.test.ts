@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   advanceBracket,
+  addRosterMembers,
   buildAdminSnapshot,
   buildPreviewSnapshot,
   buildPublicSnapshot,
@@ -1167,6 +1168,94 @@ test("status route falls back to the single real landing tournament when history
   assert.equal(body.live, false);
   assert.equal(body.hasCurrentBracket, false);
   assert.deepEqual(body.history, DEFAULT_LANDING_HISTORY);
+});
+
+test("addRosterMembers appends voters mid-tournament and updates turnout totals", async () => {
+  await resetStore();
+  const { bracket, adminToken } = await createBracket({
+    title: "Midgame Roster",
+    seedingMode: "manual",
+    entrants: ["Mars", "Twix"],
+    rosterMembers: roster,
+    startsAt: new Date().toISOString(),
+    totalPlayers: roster.length,
+    roundDurationHours: 1,
+  });
+
+  const updated = await addRosterMembers({
+    adminToken,
+    names: ["Priya", "Maya"],
+  });
+
+  assert.equal(updated.rosterMembers.length, roster.length + 2);
+  assert.equal(updated.totalPlayers, roster.length + 2);
+  assert.ok(updated.rosterMembers.some((member) => member.name === "Priya"));
+  assert.ok(updated.rosterMembers.some((member) => member.name === "Maya"));
+
+  const snapshot = buildSnapshot(updated);
+  assert.equal(snapshot.totalPlayers, roster.length + 2);
+});
+
+test("addRosterMembers lets new voters claim a name and vote in the live round", async () => {
+  await resetStore();
+  const { bracket, adminToken } = await createBracket({
+    title: "Midgame Vote",
+    seedingMode: "manual",
+    entrants: ["Mars", "Twix"],
+    rosterMembers: roster,
+    startsAt: new Date().toISOString(),
+    totalPlayers: roster.length,
+    roundDurationHours: 1,
+  });
+
+  const updated = await addRosterMembers({
+    adminToken,
+    names: ["Priya"],
+  });
+  const newMember = updated.rosterMembers.find((member) => member.name === "Priya");
+  assert.ok(newMember);
+
+  const claimed = await claimVoterIdentity({
+    publicToken: updated.publicToken,
+    browserToken: "browser-priya",
+    rosterMemberName: "Priya",
+  });
+  assert.equal(claimed.rosterMemberId, newMember!.id);
+
+  await bindAndCastVote({
+    publicToken: updated.publicToken,
+    rosterMemberId: newMember!.id,
+    matchupSlot: 1,
+    side: "A",
+    browserToken: "browser-priya",
+  });
+
+  const store = await readStore();
+  const liveBracket = store.brackets.find((entry) => entry.id === updated.id);
+  assert.ok(liveBracket);
+  assert.equal(liveBracket!.rounds[0].matchups[0].votes.length, 1);
+});
+
+test("addRosterMembers rejects duplicate and unavailable brackets", async () => {
+  await resetStore();
+  const { adminToken } = await createBracket({
+    title: "Duplicate Roster",
+    seedingMode: "manual",
+    entrants: ["Mars", "Twix"],
+    rosterMembers: roster,
+    startsAt: new Date().toISOString(),
+    totalPlayers: roster.length,
+    roundDurationHours: 1,
+  });
+
+  await assert.rejects(
+    () => addRosterMembers({ adminToken, names: ["Gabe"] }),
+    /already on the roster/,
+  );
+  await assert.rejects(
+    () => addRosterMembers({ adminToken, names: ["Priya", "priya"] }),
+    /Duplicate name in request/,
+  );
 });
 
 test("claimVoterIdentity binds one browser to one roster name", async () => {

@@ -2229,12 +2229,17 @@ button {
   background: rgba(200, 245, 60, 0.1);
 }
 
-.bw-roster-inspector-detail {
+.bw-roster-inspector-detail,
+.bw-roster-add-panel {
   margin-top: 12px;
   border: 1px solid var(--bw-border);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.02);
   padding: 14px;
+}
+
+.bw-roster-add-panel .bw-field {
+  margin-top: 12px;
 }
 
 .bw-roster-vote-list {
