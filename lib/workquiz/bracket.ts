@@ -834,6 +834,7 @@ export async function castVote(params: {
   browserToken: string;
   matchupSlot: number;
   side: "A" | "B";
+  rememberedRosterMemberId?: string | null;
 }) {
   let updatedBracketId: string | null = null;
 
@@ -846,6 +847,12 @@ export async function castVote(params: {
     if (bracket.status === "disabled") {
       throw new Error("This bracket is no longer available.");
     }
+
+    tryMigrateVoterBinding(
+      bracket,
+      params.browserToken,
+      params.rememberedRosterMemberId ?? null,
+    );
 
     const rosterMemberId = rosterMemberIdForBrowser(bracket, params.browserToken);
     if (!rosterMemberId) {

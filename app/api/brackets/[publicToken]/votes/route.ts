@@ -5,7 +5,6 @@ import { getOrCreateBrowserToken, getRememberedRosterMemberId } from "@/lib/work
 import {
   buildPublicSnapshot,
   castVote,
-  ensureVoterBinding,
   findBracketByPublicToken,
 } from "@/lib/workquiz/bracket";
 import { rosterMemberIdForBrowser } from "@/lib/workquiz/voter";
@@ -35,11 +34,6 @@ export async function POST(
 
   const browserToken = await getOrCreateBrowserToken();
   const rememberedRosterMemberId = await getRememberedRosterMemberId();
-  await ensureVoterBinding({
-    publicToken,
-    browserToken,
-    rememberedRosterMemberId,
-  });
 
   try {
     const updatedBracket = await castVote({
@@ -47,6 +41,7 @@ export async function POST(
       browserToken,
       matchupSlot: body.matchupSlot,
       side: body.side,
+      rememberedRosterMemberId,
     });
 
     const rosterMemberId = rosterMemberIdForBrowser(updatedBracket, browserToken);

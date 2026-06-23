@@ -1412,6 +1412,13 @@ button {
   color: var(--bw-lime);
 }
 
+.bw-roster-btn.selected,
+.bw-roster-btn:active {
+  border-color: rgba(200, 245, 60, 0.55);
+  background: rgba(200, 245, 60, 0.12);
+  color: var(--bw-lime);
+}
+
 .bw-page {
   width: min(960px, calc(100% - 48px));
   margin: 0 auto;
@@ -1500,7 +1507,8 @@ button {
   overflow: hidden;
   padding: 40px 28px;
   text-align: center;
-  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease, background 0.25s ease;
+  touch-action: manipulation;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, background 0.15s ease;
 }
 
 .bw-vote-card:first-child {
@@ -1531,13 +1539,19 @@ button {
   transform: translateY(-5px);
 }
 
-.bw-vote-card:disabled {
-  cursor: default;
+.bw-vote-card:active:not(:disabled):not(.voted-win):not(.voted-lose) {
+  transform: scale(0.98);
+  transition-duration: 0.05s;
 }
 
 .bw-vote-card.voted-win {
   border-color: var(--bw-lime);
   background: rgba(200, 245, 60, 0.07);
+  cursor: default;
+  transform: none;
+}
+
+.bw-vote-card:disabled {
   cursor: default;
 }
 
@@ -2464,7 +2478,8 @@ button {
   font-size: 12px;
   font-weight: 700;
   padding: 6px 12px;
-  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+  touch-action: manipulation;
+  transition: border-color 0.1s ease, background 0.1s ease, color 0.1s ease;
 }
 
 .bw-time-btn:hover,
@@ -2472,6 +2487,10 @@ button {
   border-color: rgba(200, 245, 60, 0.35);
   background: rgba(200, 245, 60, 0.06);
   color: var(--bw-lime);
+}
+
+.bw-time-btn:active {
+  transform: scale(0.97);
 }
 
 .bw-contender-preview {
