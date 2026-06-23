@@ -159,6 +159,8 @@ export function BracketClient(props: BracketClientProps) {
   const [identityReady, setIdentityReady] = useState(mode !== "public");
   const [adminSection, setAdminSection] = useState<AdminSection>("live");
   const [inspectedRosterMemberId, setInspectedRosterMemberId] = useState<string | null>(null);
+  const [rosterAddText, setRosterAddText] = useState("");
+  const [rosterAddPending, setRosterAddPending] = useState(false);
   const hydrated = useHydrated();
   const lastEtagRef = useRef<{ url: string; etag: string } | null>(null);
 
@@ -628,6 +630,41 @@ export function BracketClient(props: BracketClientProps) {
     setSnapshot(result);
   }
 
+  async function addRosterMembersNow() {
+    if (!adminToken) {
+      return;
+    }
+
+    const names = rosterAddText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!names.length) {
+      setError("Enter at least one name to add.");
+      return;
+    }
+
+    setError(null);
+    setRosterAddPending(true);
+    try {
+      const response = await fetch(`/api/admin/${adminToken}/roster/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names }),
+      });
+      const result = (await response.json()) as BracketSnapshot & { error?: string };
+      if (!response.ok) {
+        setError(result.error ?? "Could not add roster members.");
+        return;
+      }
+
+      setSnapshot(result);
+      setRosterAddText("");
+    } finally {
+      setRosterAddPending(false);
+    }
+  }
+
   async function shutDownNow() {
     if (!adminToken) {
       return;
@@ -1049,6 +1086,32 @@ export function BracketClient(props: BracketClientProps) {
                   </span>
                 </button>
               ))}
+            </div>
+            <div className="bw-roster-add-panel">
+              <div className="bw-card-title">Add Roster Members</div>
+              <p className="bw-muted">
+                Add someone mid-tournament. They can pick their name on /voting and vote in the current round right away.
+              </p>
+              <label className="bw-field">
+                <span>Names</span>
+                <textarea
+                  placeholder={"One name per line"}
+                  rows={3}
+                  value={rosterAddText}
+                  onChange={(event) => setRosterAddText(event.target.value)}
+                />
+                <small>Paste one or more names. Existing roster names must stay unique.</small>
+              </label>
+              <div className="bw-btn-row">
+                <button
+                  className="bw-btn bw-btn-lime"
+                  disabled={rosterAddPending || !rosterAddText.trim()}
+                  onClick={() => void addRosterMembersNow()}
+                  type="button"
+                >
+                  {rosterAddPending ? "Adding..." : "Add to Roster"}
+                </button>
+              </div>
             </div>
             <div className="bw-roster-inspector-detail">
               <div className="bw-card-title">
