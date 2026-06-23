@@ -760,13 +760,13 @@ export function BracketClient(props: BracketClientProps) {
 
     return (
       <section className="bw-vote-section" key={`slot-${matchup.slot}`}>
-        <div className="bw-vote-prompt">
-          {!selectedRosterMemberName
-            ? "Pick your name first, then vote"
-            : matchup.voteState.votedSide
-              ? "✓ Voted — here's how it's going"
-              : "Pick your favourite"}
-        </div>
+        {!selectedRosterMemberName || matchup.voteState.votedSide ? (
+          <div className="bw-vote-prompt">
+            {!selectedRosterMemberName
+              ? "Pick your name first, then vote"
+              : "✓ Voted — here's how it's going"}
+          </div>
+        ) : null}
         <div className="bw-vote-cards">
           {[matchup.entrantA, matchup.entrantB].map((entrant, index) => {
             const side = index === 0 ? "A" : "B";
