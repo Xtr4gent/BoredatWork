@@ -14,9 +14,9 @@ export default async function VotingPage() {
     return (
       <main className="bw-vote-app">
         <nav className="bw-public-nav" aria-label="Tournament">
-          <div className="bw-nav-logo">
+          <Link className="bw-nav-logo" href="/">
             Bored<span>@Work</span>
-          </div>
+          </Link>
           <div className="bw-nav-topic">No live tournament</div>
           <Link className="bw-nav-identity" href="/">
             Back home

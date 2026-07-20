@@ -1664,9 +1664,9 @@ export function BracketClient(props: BracketClientProps) {
       ) : null}
 
       <nav className="bw-public-nav" aria-label="Tournament">
-        <div className="bw-nav-logo">
+        <Link className="bw-nav-logo" href="/">
           Bored<span>@Work</span>
-        </div>
+        </Link>
         <div className="bw-nav-topic">{snapshot.title}</div>
         <button className="bw-nav-identity" onClick={() => setIdentityPickerOpen(true)} type="button">
           <span className="bw-nav-avatar">{selectedRosterMemberDisplayName?.slice(0, 1) ?? "?"}</span>
