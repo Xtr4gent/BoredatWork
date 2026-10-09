@@ -2100,6 +2100,20 @@ button {
   padding: 22px;
 }
 
+.bw-tie-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(255, 58, 58, 0.3);
+  border-radius: 14px;
+  background: rgba(255, 58, 58, 0.08);
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  font-size: 14px;
+}
+
 .bw-tie-list {
   display: grid;
   gap: 14px;

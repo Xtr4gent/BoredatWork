@@ -165,6 +165,16 @@ export function BracketClient(props: BracketClientProps) {
   );
   const [pendingVotes, setPendingVotes] = useState<Record<number, "A" | "B">>({});
   const [adminSection, setAdminSection] = useState<AdminSection>("live");
+  const isFirstAdminSectionRender = useRef(true);
+  useEffect(() => {
+    if (isFirstAdminSectionRender.current) {
+      isFirstAdminSectionRender.current = false;
+      return;
+    }
+    if (mode === "admin") {
+      window.scrollTo({ top: 0 });
+    }
+  }, [adminSection, mode]);
   const [inspectedRosterMemberId, setInspectedRosterMemberId] = useState<string | null>(null);
   const [rosterAddText, setRosterAddText] = useState("");
   const [rosterAddPending, setRosterAddPending] = useState(false);
@@ -1032,6 +1042,25 @@ export function BracketClient(props: BracketClientProps) {
   function renderTieBreakerPanel() {
     if (isPublicSnapshot(snapshot) || !tieBreakerMatchups.length) {
       return null;
+    }
+
+    // The full tie-breaker list only lives on Overview. On every other tab it
+    // collapses to a one-line notice, so unresolved ties (e.g. left over from an
+    // old tournament) can never push the selected tab's content off-screen.
+    if (adminSection !== "live") {
+      return (
+        <div className="bw-tie-banner" role="status">
+          <span>
+            {tieBreakerMatchups.length === 1
+              ? "1 tie breaker needs a decision."
+              : `${tieBreakerMatchups.length} tie breakers need a decision.`}{" "}
+            Public voting stays locked until they&apos;re resolved.
+          </span>
+          <button className="bw-btn bw-btn-outline" onClick={() => setAdminSection("live")} type="button">
+            Resolve
+          </button>
+        </div>
+      );
     }
 
     return (
