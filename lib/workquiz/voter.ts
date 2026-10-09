@@ -71,6 +71,26 @@ export function bindBrowserToRosterMember(
   return { ok: true };
 }
 
+/**
+ * Read-only check: would tryMigrateVoterBinding change anything for this
+ * browser? Mirrors its early returns. Lets hot read paths skip the locked
+ * read-modify-write transaction when (as on almost every poll) nothing changes.
+ */
+export function voterBindingNeedsMigration(
+  bracket: BracketRecord,
+  browserToken: string,
+  rememberedRosterMemberId: string | null,
+) {
+  if (rosterMemberIdForBrowser(bracket, browserToken)) {
+    return false;
+  }
+
+  return Boolean(
+    rememberedRosterMemberId &&
+      bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId),
+  );
+}
+
 export function tryMigrateVoterBinding(
   bracket: BracketRecord,
   browserToken: string,

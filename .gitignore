@@ -44,3 +44,6 @@ data/workquiz.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# compiled custom server (built by `npm run build:server`)
+/dist

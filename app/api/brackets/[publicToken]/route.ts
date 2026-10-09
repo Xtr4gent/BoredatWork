@@ -8,7 +8,7 @@ import {
   findBracketByPublicToken,
 } from "@/lib/workquiz/bracket";
 import { jsonWithETag } from "@/lib/workquiz/etag";
-import { rosterMemberIdForBrowser } from "@/lib/workquiz/voter";
+import { rosterMemberIdForBrowser, voterBindingNeedsMigration } from "@/lib/workquiz/voter";
 
 export async function GET(
   request: Request,
@@ -31,13 +31,19 @@ export async function GET(
 
   const browserToken = await getOrCreateBrowserToken();
   const rememberedRosterMemberId = await getRememberedRosterMemberId();
-  await ensureVoterBinding({
-    publicToken,
-    browserToken,
-    rememberedRosterMemberId,
-  });
+  // Only take the locked read-modify-write path (and re-read the store) when
+  // this browser's binding actually needs migrating. On a normal poll nothing
+  // changes, so this stays a single read with no database write.
+  let refreshedBracket = bracket;
+  if (voterBindingNeedsMigration(bracket, browserToken, rememberedRosterMemberId)) {
+    await ensureVoterBinding({
+      publicToken,
+      browserToken,
+      rememberedRosterMemberId,
+    });
+    refreshedBracket = (await findBracketByPublicToken(publicToken)) ?? bracket;
+  }
 
-  const refreshedBracket = (await findBracketByPublicToken(publicToken)) ?? bracket;
   const rosterMemberId =
     rosterMemberIdForBrowser(refreshedBracket, browserToken) ?? rememberedRosterMemberId;
 
