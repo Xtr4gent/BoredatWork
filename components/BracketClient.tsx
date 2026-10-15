@@ -1272,7 +1272,7 @@ export function BracketClient(props: BracketClientProps) {
             <div className="bw-card-header-row">
               <div className="bw-card-title">Flags</div>
               <div className="bw-tag-row">
-                <span className={flags.length ? "bw-tag bw-tag-coral" : "bw-tag bw-tag-lime"}>
+                <span className={flags.length ? "bw-tag bw-tag-coral" : "bw-tag bw-tag-muted"}>
                   {flags.length ? `${flags.length} to review` : "Nothing suspicious"}
                 </span>
               </div>
@@ -1431,6 +1431,45 @@ export function BracketClient(props: BracketClientProps) {
               </div>
             </div>
             <div className="bw-roster-inspector-detail">
+              {inspectedRosterMember
+                ? (() => {
+                    const registration = adminSnapshot.voteWatch?.members.find(
+                      (member) => member.rosterMemberId === inspectedRosterMember.rosterMemberId,
+                    );
+                    return (
+                      <div className="bw-watch-flag">
+                        <span className={registration?.registered ? "bw-tag bw-tag-gold" : "bw-tag bw-tag-muted"}>
+                          {registration?.registered ? "Hidden" : "Visible"}
+                        </span>
+                        <div>
+                          <div className="bw-watch-flag-title">
+                            {registration?.registered
+                              ? `${inspectedRosterMember.name} is registered on ${registration.browserLabel ?? "a device"}`
+                              : `${inspectedRosterMember.name} is free to pick`}
+                          </div>
+                          <p className="bw-muted">
+                            {registration?.registered
+                              ? `${registration.agent ? `${registration.agent}. ` : ""}Hidden from everyone else's name list. Free the name to make it visible again, for example when they switch devices.`
+                              : "Shown in everyone's name list on /voting."}
+                          </p>
+                          {registration?.registered ? (
+                            <div className="bw-btn-row">
+                              <button
+                                className="bw-btn bw-btn-outline"
+                                onClick={() =>
+                                  void releaseNameNow(inspectedRosterMember.rosterMemberId, inspectedRosterMember.name)
+                                }
+                                type="button"
+                              >
+                                Free name (make visible)
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })()
+                : null}
               <div className="bw-card-title">
                 {inspectedRosterMember ? `${inspectedRosterMember.name}'s Votes` : "Select a voter"}
               </div>
