@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { Pool, PoolClient } from "pg";
 import { StoreShape } from "@/lib/workquiz/types";
+import { upgradeLegacyReleases } from "@/lib/workquiz/voter";
 import { nanoid } from "nanoid";
 
 const dataDirectory = path.join(process.cwd(), "data");
@@ -56,6 +57,10 @@ function repairStore(store: StoreShape) {
         id: `legacy-roster-${index + 1}-${nanoid(6)}`,
         name: `Player ${index + 1}`,
       }));
+      changed = true;
+    }
+
+    if (upgradeLegacyReleases(bracket)) {
       changed = true;
     }
   }
@@ -127,7 +132,11 @@ export async function readStore(): Promise<StoreShape> {
     const { store, changed } = repairStore(current);
 
     if (changed) {
-      await writeStore(store);
+      // Persist the repair under the row lock. Writing back this unlocked
+      // copy would overwrite any vote or claim committed since the SELECT.
+      // Return the locked copy: a repair can mint ids, and callers must see
+      // the ids that were actually saved.
+      return await updateStore((locked) => locked);
     }
 
     return store;

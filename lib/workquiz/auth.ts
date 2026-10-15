@@ -27,21 +27,23 @@ export async function getOrCreateBrowserToken() {
   return token;
 }
 
-export async function getRememberedRosterMemberId() {
+/** Raw remembered-claim cookie: "rosterMemberId~claimId" (see voter.ts). */
+export async function getRememberedClaim() {
   const jar = await cookies();
   return jar.get(LAST_ROSTER_MEMBER_COOKIE)?.value ?? null;
 }
 
-export async function setRememberedRosterMemberId(rosterMemberId: string | null) {
+export async function setRememberedClaim(value: string | null) {
   const jar = await cookies();
 
-  if (!rosterMemberId) {
+  if (!value) {
     jar.delete(LAST_ROSTER_MEMBER_COOKIE);
     return;
   }
 
-  jar.set(LAST_ROSTER_MEMBER_COOKIE, rosterMemberId, {
-    httpOnly: false,
+  // httpOnly: page scripts never read it, and it now carries a recovery secret.
+  jar.set(LAST_ROSTER_MEMBER_COOKIE, value, {
+    httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     maxAge: 60 * 60 * 24 * 90,

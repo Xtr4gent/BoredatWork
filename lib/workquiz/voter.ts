@@ -1,4 +1,82 @@
+import { nanoid } from "nanoid";
+
 import type { BracketRecord } from "@/lib/workquiz/types";
+
+/** memberClaims value meaning "an admin freed this name; no cookie may recover it". */
+const RELEASED_CLAIM_PREFIX = "released:";
+
+export function releasedClaimMarker() {
+  return `${RELEASED_CLAIM_PREFIX}${nanoid(8)}`;
+}
+
+export function isReleasedClaim(value: string | undefined) {
+  return value?.startsWith(RELEASED_CLAIM_PREFIX) ?? false;
+}
+
+/**
+ * Drops "freed" markers so a full reset or restart really is a clean slate:
+ * a browser the admin once froze out can pick its name again. Live claims
+ * are kept so ordinary cookie-drift recovery keeps working.
+ */
+export function clearReleasedClaims(bracket: BracketRecord) {
+  for (const [rosterMemberId, claim] of Object.entries(bracket.memberClaims ?? {})) {
+    if (isReleasedClaim(claim)) {
+      delete bracket.memberClaims![rosterMemberId];
+    }
+  }
+}
+
+/**
+ * Upgrade for brackets released under the first Vote Watch build, which
+ * tracked releases per browser token in `releasedBrowserTokens`. For each
+ * name listed there without a claim record:
+ * - nobody holds it now: mark it released, so the old browser's member-only
+ *   cookie cannot recover it;
+ * - a different browser re-registered it since: give it a fresh live claim.
+ *   The old browser's member-only cookie no longer matches, and the current
+ *   holder receives the claim cookie on its next poll (see
+ *   ensureClaimForBoundBrowser), so its own recovery keeps working.
+ * Returns true when the bracket changed.
+ */
+export function upgradeLegacyReleases(bracket: BracketRecord & { releasedBrowserTokens?: Record<string, string> }) {
+  const legacy = bracket.releasedBrowserTokens;
+  if (!legacy) {
+    return false;
+  }
+
+  for (const rosterMemberId of new Set(Object.values(legacy))) {
+    bracket.memberClaims ??= {};
+    if (bracket.memberClaims[rosterMemberId] !== undefined) {
+      continue;
+    }
+
+    const holder = browserTokenForRosterMember(bracket, rosterMemberId);
+    const heldByNewBrowser = holder !== null && legacy[holder] !== rosterMemberId;
+    bracket.memberClaims[rosterMemberId] = heldByNewBrowser ? nanoid(16) : releasedClaimMarker();
+  }
+  delete bracket.releasedBrowserTokens;
+  return true;
+}
+
+/**
+ * True when a browser bound to a name is not carrying that name's current
+ * claim in its remembered cookie (an old member-only cookie, or a claim that
+ * predates an upgrade). Read-only, so the hot polling path can skip the write.
+ */
+export function boundBrowserNeedsClaimCookie(
+  bracket: BracketRecord,
+  browserToken: string,
+  remembered: string | null,
+) {
+  const bound = rosterMemberIdForBrowser(bracket, browserToken);
+  if (!bound) {
+    return false;
+  }
+
+  const parsed = parseRememberedClaim(remembered);
+  const current = bracket.memberClaims?.[bound];
+  return !(parsed?.rosterMemberId === bound && parsed.claimId !== null && parsed.claimId === current);
+}
 
 function normalizeRosterName(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -9,12 +87,101 @@ export function ensureVoterBindings(bracket: BracketRecord) {
 }
 
 /**
- * True when an admin freed this name from this exact browser. Such a browser
- * still remembers the name, but must not grab it back on its next poll, or a
- * person moving to a new device would lose the name to their old open tab.
+ * The remembered-name cookie holds "rosterMemberId~claimId". The claim id is
+ * a secret minted on every successful pick and stored in
+ * bracket.memberClaims, so only the browser that made the CURRENT
+ * registration can recover the name after its main cookie drifts. An admin
+ * release replaces the stored id, which kills every older cookie no matter
+ * which browser token it now travels with. Cookies written before claim ids
+ * existed carry only the member id and keep working until the name is next
+ * picked or released.
  */
-export function wasReleasedFromBrowser(bracket: BracketRecord, browserToken: string, rosterMemberId: string) {
-  return bracket.releasedBrowserTokens?.[browserToken] === rosterMemberId;
+const REMEMBERED_SEPARATOR = "~";
+/** Between per-bracket entries: "m1~c1.m9~c9". Ids never contain "." or "~". */
+const REMEMBERED_ENTRY_SEPARATOR = ".";
+const MAX_REMEMBERED_ENTRIES = 5;
+
+export interface RememberedClaim {
+  rosterMemberId: string;
+  claimId: string | null;
+}
+
+export function parseRememberedClaim(raw: string | null | undefined): RememberedClaim | null {
+  const value = raw?.trim();
+  if (!value) {
+    return null;
+  }
+
+  const separator = value.indexOf(REMEMBERED_SEPARATOR);
+  if (separator === -1) {
+    return { rosterMemberId: value, claimId: null };
+  }
+
+  const rosterMemberId = value.slice(0, separator);
+  const claimId = value.slice(separator + 1);
+  return rosterMemberId ? { rosterMemberId, claimId: claimId || null } : null;
+}
+
+export function formatRememberedClaim(rosterMemberId: string, claimId: string) {
+  return `${rosterMemberId}${REMEMBERED_SEPARATOR}${claimId}`;
+}
+
+/**
+ * A browser can be registered in more than one bracket (say a test bracket
+ * and the live one), so the cookie keeps one entry per bracket. Roster ids
+ * are unique per bracket, so the entry whose member is on this roster is
+ * this bracket's. Returns that single entry, or null.
+ */
+export function rememberedEntryForBracket(bracket: BracketRecord, cookieValue: string | null | undefined) {
+  for (const entry of cookieValue?.split(REMEMBERED_ENTRY_SEPARATOR) ?? []) {
+    const parsed = parseRememberedClaim(entry);
+    if (parsed && bracket.rosterMembers.some((member) => member.id === parsed.rosterMemberId)) {
+      return entry;
+    }
+  }
+
+  return null;
+}
+
+/** Cookie value with this bracket's entry replaced and the others kept (newest last, capped). */
+export function mergeRememberedEntry(
+  bracket: BracketRecord,
+  cookieValue: string | null | undefined,
+  rosterMemberId: string,
+  claimId: string,
+) {
+  const others = (cookieValue?.split(REMEMBERED_ENTRY_SEPARATOR) ?? []).filter((entry) => {
+    const parsed = parseRememberedClaim(entry);
+    return parsed && !bracket.rosterMembers.some((member) => member.id === parsed.rosterMemberId);
+  });
+
+  return [...others, formatRememberedClaim(rosterMemberId, claimId)]
+    .slice(-MAX_REMEMBERED_ENTRIES)
+    .join(REMEMBERED_ENTRY_SEPARATOR);
+}
+
+/** Remembered member id when it is on this bracket's roster, whatever its claim state. */
+export function rememberedRosterMemberId(bracket: BracketRecord, raw: string | null | undefined) {
+  const remembered = parseRememberedClaim(raw);
+  return remembered && bracket.rosterMembers.some((member) => member.id === remembered.rosterMemberId)
+    ? remembered.rosterMemberId
+    : null;
+}
+
+/** True when this cookie belongs to the name's current registration. */
+export function isRememberedClaimCurrent(bracket: BracketRecord, raw: string | null | undefined) {
+  const remembered = parseRememberedClaim(raw);
+  if (!remembered || !rememberedRosterMemberId(bracket, raw)) {
+    return false;
+  }
+
+  const current = bracket.memberClaims?.[remembered.rosterMemberId];
+  if (current === undefined) {
+    // Registered before claim ids existed: trust the member id, as before.
+    return true;
+  }
+
+  return remembered.claimId !== null && remembered.claimId === current;
 }
 
 export function rosterMemberIdForBrowser(bracket: BracketRecord, browserToken: string) {
@@ -88,39 +255,32 @@ export function bindBrowserToRosterMember(
 export function voterBindingNeedsMigration(
   bracket: BracketRecord,
   browserToken: string,
-  rememberedRosterMemberId: string | null,
+  remembered: string | null,
 ) {
   if (rosterMemberIdForBrowser(bracket, browserToken)) {
     return false;
   }
 
-  return Boolean(
-    rememberedRosterMemberId &&
-      bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId) &&
-      !wasReleasedFromBrowser(bracket, browserToken, rememberedRosterMemberId),
-  );
+  return isRememberedClaimCurrent(bracket, remembered);
 }
 
 export function tryMigrateVoterBinding(
   bracket: BracketRecord,
   browserToken: string,
-  rememberedRosterMemberId: string | null,
+  remembered: string | null,
 ) {
   const existing = rosterMemberIdForBrowser(bracket, browserToken);
   if (existing) {
     return existing;
   }
 
-  if (
-    !rememberedRosterMemberId ||
-    !bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId) ||
-    wasReleasedFromBrowser(bracket, browserToken, rememberedRosterMemberId)
-  ) {
+  if (!isRememberedClaimCurrent(bracket, remembered)) {
     return null;
   }
 
-  const result = bindBrowserToRosterMember(bracket, browserToken, rememberedRosterMemberId, {
+  const rosterMemberId = parseRememberedClaim(remembered)!.rosterMemberId;
+  const result = bindBrowserToRosterMember(bracket, browserToken, rosterMemberId, {
     rebind: true,
   });
-  return result.ok ? rememberedRosterMemberId : null;
+  return result.ok ? rosterMemberId : null;
 }

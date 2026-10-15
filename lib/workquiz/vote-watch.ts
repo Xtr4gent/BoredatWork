@@ -39,23 +39,16 @@ export function recordVoterEvent(
   }
 }
 
-/** Assigns "Browser 1", "Network 2"... in order of first appearance. */
+/**
+ * "Browser A3F9C21B04": the whole stored hash, so a label never changes
+ * between refreshes, never shifts when the capped log drops old events, and
+ * two different browsers can never share one.
+ */
 class Labeller {
-  private readonly labels = new Map<string, string>();
-
   constructor(private readonly prefix: string) {}
 
   label(key: string | null | undefined) {
-    if (!key) {
-      return null;
-    }
-
-    let existing = this.labels.get(key);
-    if (!existing) {
-      existing = `${this.prefix} ${this.labels.size + 1}`;
-      this.labels.set(key, existing);
-    }
-    return existing;
+    return key ? `${this.prefix} ${key.toUpperCase()}` : null;
   }
 }
 
@@ -98,11 +91,8 @@ export function buildVoteWatch(bracket: BracketRecord): VoteWatchSnapshot {
       }
     }
   }
+  // Chronological, so "latest" per member below is really the latest.
   observations.sort((a, b) => a.at.localeCompare(b.at));
-  for (const observation of observations) {
-    browsers.label(observation.client.browserId);
-    networks.label(observation.client.network);
-  }
 
   const flags: VoteWatchFlag[] = [];
 

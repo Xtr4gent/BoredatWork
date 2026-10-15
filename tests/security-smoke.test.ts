@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { formatRememberedClaim } from "@/lib/workquiz/voter";
 import {
   buildPublicSnapshot,
   castVote,
@@ -166,13 +167,13 @@ test("SECURITY: a browser can reclaim its own roster name after its main cookie 
     roundDurationHours: 1,
   });
 
-  await claimVoterIdentity({
+  const first = await claimVoterIdentity({
     publicToken: bracket.publicToken,
     browserToken: "browser-a",
     rosterMemberName: roster[0],
   });
 
-  // Without the remembered roster id this is someone else's browser: blocked.
+  // Without the remembered claim this is someone else's browser: blocked.
   await assert.rejects(
     () =>
       claimVoterIdentity({
@@ -188,7 +189,7 @@ test("SECURITY: a browser can reclaim its own roster name after its main cookie 
     publicToken: bracket.publicToken,
     browserToken: "browser-b",
     rosterMemberName: roster[0],
-    rememberedRosterMemberId: bracket.rosterMembers[0].id,
+    remembered: formatRememberedClaim(first.rosterMemberId, first.claimId),
   });
 
   assert.equal(reclaimed.rosterMemberId, bracket.rosterMembers[0].id);

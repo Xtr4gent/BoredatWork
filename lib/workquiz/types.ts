@@ -105,8 +105,11 @@ export interface BracketRecord {
   rosterMembers: RosterMemberRecord[];
   /** browserToken -> rosterMemberId; optional on legacy brackets until first bind */
   voterBindings?: Record<string, string>;
-  /** browserToken -> rosterMemberId an admin freed from that browser. */
-  releasedBrowserTokens?: Record<string, string>;
+  /**
+   * rosterMemberId -> secret id of the current registration (or a "released:"
+   * marker). The remembered-name cookie must carry it to recover a name.
+   */
+  memberClaims?: Record<string, string>;
   /** Capped audit log of name claims, blocked takeovers and resets. */
   voterEvents?: VoterEventRecord[];
   rounds: RoundRecord[];
