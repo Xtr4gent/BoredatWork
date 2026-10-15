@@ -834,6 +834,30 @@ export async function ensureVoterBinding(params: {
 }
 
 /**
+ * Hands a bound browser the current claim for its name, minting one when the
+ * name has none (or only a release marker). Lets browsers holding old
+ * member-only cookies move onto claim cookies without re-picking.
+ */
+export async function ensureClaimForBoundBrowser(params: { publicToken: string; browserToken: string }) {
+  let result: { rosterMemberId: string; claimId: string } | null = null;
+
+  await updateStore((store) => {
+    const bracket = store.brackets.find((entry) => entry.publicToken === params.publicToken);
+    const bound = bracket ? rosterMemberIdForBrowser(bracket, params.browserToken) : null;
+    if (!bracket || !bound) {
+      return store;
+    }
+
+    const existing = bracket.memberClaims?.[bound];
+    const claimId = existing && !isReleasedClaim(existing) ? existing : mintMemberClaim(bracket, bound);
+    result = { rosterMemberId: bound, claimId };
+    return store;
+  });
+
+  return result as { rosterMemberId: string; claimId: string } | null;
+}
+
+/**
  * Binds a browser to a roster name and returns the claim id the caller must
  * store in the remembered-claim cookie. A name already registered on another
  * browser is NOT handed over; the only exception is the browser holding the
@@ -896,7 +920,15 @@ export async function claimVoterIdentity(params: {
 
     const holderToken = browserTokenForRosterMember(bracket, member.id);
     const isOwnDriftedName = rememberedId === member.id && isRememberedClaimCurrent(bracket, params.remembered);
-    if (rememberedId === member.id && !isOwnDriftedName && !holderToken) {
+    // Freed by the admin: this browser's registration was revoked. (A claim
+    // that was merely superseded by a newer device is not blocked here once
+    // nobody holds the name, e.g. after a full reset.)
+    if (
+      rememberedId === member.id &&
+      !isOwnDriftedName &&
+      !holderToken &&
+      isReleasedClaim(bracket.memberClaims?.[member.id])
+    ) {
       recordVoterEvent(bracket, {
         type: "claim_blocked",
         rosterMemberId: member.id,

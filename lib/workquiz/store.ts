@@ -132,7 +132,9 @@ export async function readStore(): Promise<StoreShape> {
     const { store, changed } = repairStore(current);
 
     if (changed) {
-      await writeStore(store);
+      // Persist the repair under the row lock. Writing back this unlocked
+      // copy would overwrite any vote or claim committed since the SELECT.
+      await updateStore((locked) => locked);
     }
 
     return store;

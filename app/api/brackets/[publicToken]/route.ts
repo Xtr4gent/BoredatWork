@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
-import { getOrCreateBrowserToken, getRememberedClaim } from "@/lib/workquiz/auth";
+import { getOrCreateBrowserToken, getRememberedClaim, setRememberedClaim } from "@/lib/workquiz/auth";
 import {
   buildPublicSnapshot,
+  ensureClaimForBoundBrowser,
   ensureVoterBinding,
   findBracketByPublicToken,
 } from "@/lib/workquiz/bracket";
 import { getClientInfo } from "@/lib/workquiz/client-info";
 import { jsonWithETag } from "@/lib/workquiz/etag";
 import {
+  boundBrowserNeedsClaimCookie,
+  formatRememberedClaim,
   isRememberedClaimCurrent,
   parseRememberedClaim,
   rosterMemberIdForBrowser,
@@ -49,6 +52,16 @@ export async function GET(
       client: getClientInfo(request, browserToken),
     });
     refreshedBracket = (await findBracketByPublicToken(publicToken)) ?? bracket;
+  }
+
+  // Once per browser: a bound browser still on an old cookie gets the current
+  // claim, so its own drift recovery keeps working. Normal polls skip this.
+  if (boundBrowserNeedsClaimCookie(refreshedBracket, browserToken, remembered)) {
+    const claim = await ensureClaimForBoundBrowser({ publicToken, browserToken });
+    if (claim) {
+      await setRememberedClaim(formatRememberedClaim(claim.rosterMemberId, claim.claimId));
+      refreshedBracket = (await findBracketByPublicToken(publicToken)) ?? refreshedBracket;
+    }
   }
 
   // A stale claim (freed by the admin, or superseded by a newer device) no

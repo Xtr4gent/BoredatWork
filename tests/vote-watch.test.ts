@@ -8,6 +8,7 @@ import {
   claimVoterIdentity,
   clearVoterBindings,
   createBracket,
+  ensureClaimForBoundBrowser,
   ensureVoterBinding,
   releaseVoterBinding,
 } from "@/lib/workquiz/bracket";
@@ -15,7 +16,12 @@ import { browserIdForToken, getClientInfo, summariseUserAgent } from "@/lib/work
 import { ensureStore, readStore, updateStore, writeStore } from "@/lib/workquiz/store";
 import type { BracketRecord, VoterClientInfo } from "@/lib/workquiz/types";
 import { MAX_VOTER_EVENTS, buildVoteWatch, recordVoterEvent } from "@/lib/workquiz/vote-watch";
-import { formatRememberedClaim, upgradeLegacyReleases } from "@/lib/workquiz/voter";
+import {
+  boundBrowserNeedsClaimCookie,
+  formatRememberedClaim,
+  isRememberedClaimCurrent,
+  upgradeLegacyReleases,
+} from "@/lib/workquiz/voter";
 
 const roster = ["Gabe", "Alex", "Jordan", "Sam"];
 
@@ -500,4 +506,81 @@ test("a release made before the claim-id upgrade still keeps the old browser out
   };
   assert.equal(stored.releasedBrowserTokens, undefined);
   assert.equal(upgradeLegacyReleases(stored), false);
+});
+
+// Greptile #6 round 2, finding 1: a name re-registered on a new device before
+// the upgrade stays recoverable for that device, and only for that device.
+test("the upgrade keeps a name re-registered after a legacy release recoverable for its new holder", async () => {
+  const bracket = await newBracket();
+  const alexId = bracket.rosterMembers[1].id;
+
+  // First build's state: Alex freed from old-laptop, then picked on new-phone;
+  // both browsers hold member-only cookies, no memberClaims.
+  await updateStore((store) => {
+    const mutable = store.brackets.find((entry) => entry.publicToken === bracket.publicToken)! as BracketRecord & {
+      releasedBrowserTokens?: Record<string, string>;
+    };
+    mutable.voterBindings = { "new-phone": alexId };
+    mutable.releasedBrowserTokens = { "old-laptop": alexId };
+    delete mutable.memberClaims;
+    return store;
+  });
+
+  const upgraded = (await readStore()).brackets.find((entry) => entry.publicToken === bracket.publicToken)!;
+  assert.ok(upgraded.memberClaims?.[alexId] && !upgraded.memberClaims[alexId].startsWith("released:"));
+
+  // The old laptop's member-only cookie is now stale...
+  assert.equal(isRememberedClaimCurrent(upgraded, alexId), false);
+
+  // ...while the new phone is handed the live claim on its next poll...
+  assert.equal(boundBrowserNeedsClaimCookie(upgraded, "new-phone", alexId), true);
+  const claim = await ensureClaimForBoundBrowser({ publicToken: bracket.publicToken, browserToken: "new-phone" });
+  assert.equal(claim?.claimId, upgraded.memberClaims?.[alexId]);
+  const phoneCookie = formatRememberedClaim(alexId, claim!.claimId);
+  assert.equal(boundBrowserNeedsClaimCookie(upgraded, "new-phone", phoneCookie), false);
+
+  // ...so if the phone's main cookie later drifts, it still recovers its name.
+  const recovered = await ensureVoterBinding({
+    publicToken: bracket.publicToken,
+    browserToken: "new-phone-new-token",
+    remembered: phoneCookie,
+  });
+  assert.equal(recovered, alexId);
+});
+
+// Greptile #6 round 2, finding 3: after a full reset, a browser whose claim
+// was only superseded (not freed) may pick its name if nobody holds it.
+test("after a full reset a superseded (not freed) browser can pick its name again", async () => {
+  const bracket = await newBracket();
+  const first = await claimVoterIdentity({ publicToken: bracket.publicToken, browserToken: "laptop", rosterMemberName: "Sam" });
+  const laptopCookie = formatRememberedClaim(first.rosterMemberId, first.claimId);
+
+  // Sam's laptop cookie drifts; Sam re-picks there with the current claim,
+  // which mints a newer claim the laptop's old cookie no longer matches.
+  await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "laptop-2",
+    rosterMemberName: "Sam",
+    remembered: laptopCookie,
+  });
+
+  await updateStore((store) => {
+    clearVoterBindings(store.brackets.find((entry) => entry.publicToken === bracket.publicToken)!);
+    return store;
+  });
+
+  const again = await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "laptop",
+    rosterMemberName: "Sam",
+    remembered: laptopCookie,
+  });
+  assert.equal(again.rosterMemberId, first.rosterMemberId);
+});
+
+test("a browser that never registered does not get a claim cookie", async () => {
+  const bracket = await newBracket();
+  const stored = await storedBracket(bracket.publicToken);
+  assert.equal(boundBrowserNeedsClaimCookie(stored, "stranger", null), false);
+  assert.equal(await ensureClaimForBoundBrowser({ publicToken: bracket.publicToken, browserToken: "stranger" }), null);
 });

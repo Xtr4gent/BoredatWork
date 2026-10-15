@@ -28,11 +28,14 @@ export function clearReleasedClaims(bracket: BracketRecord) {
 
 /**
  * Upgrade for brackets released under the first Vote Watch build, which
- * tracked releases per browser token in `releasedBrowserTokens`. Each name
- * listed there is marked released unless it already has a claim record, so
- * its old browser cannot recover it with a member-only cookie. If someone
- * re-registered that name in between, their current binding is untouched;
- * they just need to pick their name again should their main cookie drift.
+ * tracked releases per browser token in `releasedBrowserTokens`. For each
+ * name listed there without a claim record:
+ * - nobody holds it now: mark it released, so the old browser's member-only
+ *   cookie cannot recover it;
+ * - a different browser re-registered it since: give it a fresh live claim.
+ *   The old browser's member-only cookie no longer matches, and the current
+ *   holder receives the claim cookie on its next poll (see
+ *   ensureClaimForBoundBrowser), so its own recovery keeps working.
  * Returns true when the bracket changed.
  */
 export function upgradeLegacyReleases(bracket: BracketRecord & { releasedBrowserTokens?: Record<string, string> }) {
@@ -43,12 +46,36 @@ export function upgradeLegacyReleases(bracket: BracketRecord & { releasedBrowser
 
   for (const rosterMemberId of new Set(Object.values(legacy))) {
     bracket.memberClaims ??= {};
-    if (bracket.memberClaims[rosterMemberId] === undefined) {
-      bracket.memberClaims[rosterMemberId] = releasedClaimMarker();
+    if (bracket.memberClaims[rosterMemberId] !== undefined) {
+      continue;
     }
+
+    const holder = browserTokenForRosterMember(bracket, rosterMemberId);
+    const heldByNewBrowser = holder !== null && legacy[holder] !== rosterMemberId;
+    bracket.memberClaims[rosterMemberId] = heldByNewBrowser ? nanoid(16) : releasedClaimMarker();
   }
   delete bracket.releasedBrowserTokens;
   return true;
+}
+
+/**
+ * True when a browser bound to a name is not carrying that name's current
+ * claim in its remembered cookie (an old member-only cookie, or a claim that
+ * predates an upgrade). Read-only, so the hot polling path can skip the write.
+ */
+export function boundBrowserNeedsClaimCookie(
+  bracket: BracketRecord,
+  browserToken: string,
+  remembered: string | null,
+) {
+  const bound = rosterMemberIdForBrowser(bracket, browserToken);
+  if (!bound) {
+    return false;
+  }
+
+  const parsed = parseRememberedClaim(remembered);
+  const current = bracket.memberClaims?.[bound];
+  return !(parsed?.rosterMemberId === bound && parsed.claimId !== null && parsed.claimId === current);
 }
 
 function normalizeRosterName(value: string) {
