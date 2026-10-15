@@ -1274,6 +1274,13 @@ export async function clearMatchupVote(params: {
       throw new Error("Matchup not found.");
     }
 
+    // Only while voting is open. A decided matchup's winner has already moved
+    // on to the next round, so removing a vote afterwards would leave the
+    // stored votes disagreeing with the result.
+    if (targetMatchup.status !== "live") {
+      throw new Error("This matchup is already decided, so its votes can't be changed.");
+    }
+
     const nextVotes = targetMatchup.votes.filter((vote) => vote.rosterMemberId !== params.rosterMemberId);
     if (nextVotes.length === targetMatchup.votes.length) {
       throw new Error("Vote not found for that person in this matchup.");

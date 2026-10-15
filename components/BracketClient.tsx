@@ -1481,7 +1481,7 @@ export function BracketClient(props: BracketClientProps) {
                       <div className="bw-roster-vote-choice">
                         {vote ? `Voted for ${vote.entrantName}` : "No vote yet"}
                       </div>
-                      {vote ? (
+                      {vote && matchup.status === "live" ? (
                         <button
                           className="bw-btn bw-btn-outline"
                           onClick={() =>
@@ -1534,19 +1534,21 @@ export function BracketClient(props: BracketClientProps) {
                           <span>
                             {voteEntry.rosterMemberName} voted for {voteEntry.entrantName}
                           </span>
-                          <button
-                            className="bw-btn bw-btn-outline"
-                            onClick={() =>
-                              clearVote(
-                                matchup.id,
-                                voteEntry.rosterMemberId,
-                                voteEntry.rosterMemberName,
-                              )
-                            }
-                            type="button"
-                          >
-                            Clear vote
-                          </button>
+                          {matchup.status === "live" ? (
+                            <button
+                              className="bw-btn bw-btn-outline"
+                              onClick={() =>
+                                clearVote(
+                                  matchup.id,
+                                  voteEntry.rosterMemberId,
+                                  voteEntry.rosterMemberName,
+                                )
+                              }
+                              type="button"
+                            >
+                              Clear vote
+                            </button>
+                          ) : null}
                         </div>
                       ))}
                     </div>
