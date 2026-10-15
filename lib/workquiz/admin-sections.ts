@@ -52,3 +52,9 @@ export const ADMIN_STATUS_TAG: Record<AdminTournamentStatus, { label: string; cl
   finished: { label: "Finished", className: "bw-tag bw-tag-muted" },
   "shut-down": { label: "Shut down", className: "bw-tag bw-tag-muted" },
 };
+
+/** Section named by a workspace pathname (/admin/t/<id>/<slug>); Overview when absent. */
+export function adminSectionFromPath(pathname: string): AdminSection {
+  const [admin, t, , slug] = pathname.split("/").filter(Boolean);
+  return admin === "admin" && t === "t" ? adminSectionFromSlug(slug) : "live";
+}

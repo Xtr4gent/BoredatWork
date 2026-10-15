@@ -4,6 +4,7 @@ import test from "node:test";
 import { POST as logout } from "@/app/api/admin-logout/route";
 import {
   ADMIN_SECTION_SLUGS,
+  adminSectionFromPath,
   adminSectionFromSlug,
   adminTournamentStatus,
   adminWorkspacePath,
@@ -106,6 +107,16 @@ test("workspace sections round-trip through the URL; unknown slugs open Overview
   assert.equal(adminWorkspacePath("abc123"), "/admin/t/abc123/overview");
   assert.equal(adminSectionFromSlug("not-a-section"), "live");
   assert.equal(adminSectionFromSlug(undefined), "live");
+});
+
+test("Back/Forward read the section from the address the same way the page builds it", () => {
+  for (const section of Object.keys(ADMIN_SECTION_SLUGS) as AdminSection[]) {
+    assert.equal(adminSectionFromPath(adminWorkspacePath("abc123", section)), section);
+  }
+  assert.equal(adminSectionFromPath("/admin/t/abc123"), "live", "no section in the address opens Overview");
+  assert.equal(adminSectionFromPath("/admin/t/abc123/players/"), "roster", "a trailing slash is fine");
+  assert.equal(adminSectionFromPath("/admin/t/an%20id/vote-watch"), "watch", "encoded ids do not shift the slug");
+  assert.equal(adminSectionFromPath("/admin"), "live");
 });
 
 test("log out clears the admin session cookie and sends you to the login page", async () => {

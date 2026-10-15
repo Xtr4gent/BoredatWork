@@ -17,7 +17,7 @@ import {
 import { AdminTopNav } from "@/components/AdminTopNav";
 import {
   ADMIN_STATUS_TAG,
-  adminSectionFromSlug,
+  adminSectionFromPath,
   adminTournamentStatus,
   adminWorkspacePath,
   type AdminSection,
@@ -278,10 +278,7 @@ export function BracketClient(props: BracketClientProps) {
     if (mode !== "admin") {
       return;
     }
-    const onPopState = () => {
-      const slug = window.location.pathname.split("/").filter(Boolean)[3];
-      setAdminSection(adminSectionFromSlug(slug));
-    };
+    const onPopState = () => setAdminSection(adminSectionFromPath(window.location.pathname));
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, [mode]);
