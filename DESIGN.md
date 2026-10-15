@@ -15,13 +15,13 @@ do not let them drift apart again.
 - **Theme:** Dark only. There is no light theme; do not add one unless asked.
 
 ## Typography
-- **Display:** `Syne` 700/800 (`--font-display`). Used for page and panel titles, stats, buttons, and score-style emphasis. Panel titles are uppercase with tight tracking (`-0.04em`).
+- **Display:** `Syne` 700/800 (`--font-display`). Used for page and panel titles, stats, primary buttons (`.bw-btn-lime`), and score-style emphasis. Other `.bw-btn` variants use `DM Sans`. Panel titles are uppercase with tight tracking (`-0.04em`).
 - **Body / UI / data:** `DM Sans` (`--font-body`). Used for paragraphs, labels, helper text, tables.
 - **Code / URLs / tokens:** browser monospace.
 - **Loading:** `next/font/google` in `app/layout.tsx`.
 
 ## Color
-Tokens live on `.bw-vote-app, .bw-admin-app` (and the landing page's `:root` mirrors them).
+The `--bw-*` tokens below live on `.bw-vote-app, .bw-admin-app`. The landing page uses separate `:root` tokens: `--bg`, `--bg-2`, `--paper`, `--paper-2`, `--text`, `--muted`, `--line`, and `--accent`. Most colours match, but landing `--muted` is `#8a8a98` and `--line` is `rgba(255, 255, 255, 0.08)`; use the landing names in landing-page styles.
 
 | Token | Value | Role |
 |-------|-------|------|
@@ -59,7 +59,7 @@ Rules:
 
 ## Layout
 - Mobile first where players use it (`/voting`): single column, large tap targets.
-- Admin: sidebar + content on desktop, stacking to one column under `760px`.
+- Admin: sidebar + content on desktop; the sidebar is hidden at `768px` and below.
 - Phone width: 16px side gutters, no horizontal page scroll.
 
 ## Rules
