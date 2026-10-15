@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { Pool, PoolClient } from "pg";
 import { StoreShape } from "@/lib/workquiz/types";
+import { upgradeLegacyReleases } from "@/lib/workquiz/voter";
 import { nanoid } from "nanoid";
 
 const dataDirectory = path.join(process.cwd(), "data");
@@ -56,6 +57,10 @@ function repairStore(store: StoreShape) {
         id: `legacy-roster-${index + 1}-${nanoid(6)}`,
         name: `Player ${index + 1}`,
       }));
+      changed = true;
+    }
+
+    if (upgradeLegacyReleases(bracket)) {
       changed = true;
     }
   }

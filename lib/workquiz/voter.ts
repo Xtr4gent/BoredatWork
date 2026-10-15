@@ -1,4 +1,55 @@
+import { nanoid } from "nanoid";
+
 import type { BracketRecord } from "@/lib/workquiz/types";
+
+/** memberClaims value meaning "an admin freed this name; no cookie may recover it". */
+const RELEASED_CLAIM_PREFIX = "released:";
+
+export function releasedClaimMarker() {
+  return `${RELEASED_CLAIM_PREFIX}${nanoid(8)}`;
+}
+
+export function isReleasedClaim(value: string | undefined) {
+  return value?.startsWith(RELEASED_CLAIM_PREFIX) ?? false;
+}
+
+/**
+ * Drops "freed" markers so a full reset or restart really is a clean slate:
+ * a browser the admin once froze out can pick its name again. Live claims
+ * are kept so ordinary cookie-drift recovery keeps working.
+ */
+export function clearReleasedClaims(bracket: BracketRecord) {
+  for (const [rosterMemberId, claim] of Object.entries(bracket.memberClaims ?? {})) {
+    if (isReleasedClaim(claim)) {
+      delete bracket.memberClaims![rosterMemberId];
+    }
+  }
+}
+
+/**
+ * Upgrade for brackets released under the first Vote Watch build, which
+ * tracked releases per browser token in `releasedBrowserTokens`. Each name
+ * listed there is marked released unless it already has a claim record, so
+ * its old browser cannot recover it with a member-only cookie. If someone
+ * re-registered that name in between, their current binding is untouched;
+ * they just need to pick their name again should their main cookie drift.
+ * Returns true when the bracket changed.
+ */
+export function upgradeLegacyReleases(bracket: BracketRecord & { releasedBrowserTokens?: Record<string, string> }) {
+  const legacy = bracket.releasedBrowserTokens;
+  if (!legacy) {
+    return false;
+  }
+
+  for (const rosterMemberId of new Set(Object.values(legacy))) {
+    bracket.memberClaims ??= {};
+    if (bracket.memberClaims[rosterMemberId] === undefined) {
+      bracket.memberClaims[rosterMemberId] = releasedClaimMarker();
+    }
+  }
+  delete bracket.releasedBrowserTokens;
+  return true;
+}
 
 function normalizeRosterName(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();

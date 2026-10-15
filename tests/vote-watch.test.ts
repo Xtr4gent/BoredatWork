@@ -15,7 +15,7 @@ import { browserIdForToken, getClientInfo, summariseUserAgent } from "@/lib/work
 import { ensureStore, readStore, updateStore, writeStore } from "@/lib/workquiz/store";
 import type { BracketRecord, VoterClientInfo } from "@/lib/workquiz/types";
 import { MAX_VOTER_EVENTS, buildVoteWatch, recordVoterEvent } from "@/lib/workquiz/vote-watch";
-import { formatRememberedClaim } from "@/lib/workquiz/voter";
+import { formatRememberedClaim, upgradeLegacyReleases } from "@/lib/workquiz/voter";
 
 const roster = ["Gabe", "Alex", "Jordan", "Sam"];
 
@@ -182,7 +182,7 @@ test("one browser voting as two people is a high flag", async () => {
   const flag = watch.flags.find((entry) => entry.severity === "high");
   assert.ok(flag);
   assert.deepEqual(flag.rosterMemberNames, ["Jordan", "Sam"]);
-  assert.equal(flag.title, "Browser B-SH was used as 2 different people");
+  assert.equal(flag.title, "Browser B-SHARED was used as 2 different people");
 });
 
 test("two browsers with the same device details on one network are a medium flag", async () => {
@@ -418,6 +418,86 @@ test("Vote Watch labels come from the stored ids, not the order events appear in
   stored.voterEvents = stored.voterEvents?.slice(1); // the capped log dropped Gabe's claim
   const after = buildVoteWatch(stored).members.find((member) => member.name === "Sam")?.browserLabel;
 
-  assert.equal(before, `Browser ${browserIdForToken("b").slice(0, 4).toUpperCase()}`);
+  assert.equal(before, `Browser ${browserIdForToken("b").toUpperCase()}`);
   assert.equal(after, before);
+});
+
+// Greptile #6 finding 3: browsers whose ids share a prefix get distinct labels.
+test("Vote Watch never gives two different browsers the same label", () => {
+  const bracket = {
+    rosterMembers: [
+      { id: "m1", name: "Gabe" },
+      { id: "m2", name: "Sam" },
+    ],
+    rounds: [],
+    voterBindings: {},
+    voterEvents: [
+      { id: "e1", type: "claim", at: "2026-10-15T10:00:00Z", rosterMemberId: "m1", client: client({ browserId: "aaaa111111" }) },
+      { id: "e2", type: "claim", at: "2026-10-15T10:01:00Z", rosterMemberId: "m2", client: client({ browserId: "aaaa222222" }) },
+    ],
+  } as unknown as BracketRecord;
+
+  const labels = buildVoteWatch(bracket).recentEvents.map((event) => event.browserLabel);
+  assert.equal(new Set(labels).size, 2);
+});
+
+// Greptile #6 finding 2: a full reset or restart is a clean slate again.
+test("resetting all names lets a previously freed browser pick its name again", async () => {
+  const { bracket, memberId, oldCookie } = await claimThenRelease("Jordan");
+
+  await updateStore((store) => {
+    clearVoterBindings(store.brackets.find((entry) => entry.publicToken === bracket.publicToken)!);
+    return store;
+  });
+
+  const again = await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "old-laptop",
+    rosterMemberName: "Jordan",
+    remembered: oldCookie,
+  });
+  assert.equal(again.rosterMemberId, memberId);
+});
+
+// Greptile #6 finding 1: releases recorded by the first Vote Watch build
+// (per-token releasedBrowserTokens) survive the upgrade.
+test("a release made before the claim-id upgrade still keeps the old browser out", async () => {
+  const bracket = await newBracket();
+  const alexId = bracket.rosterMembers[1].id;
+
+  // Store exactly as the first build left it: name freed, token remembered,
+  // no memberClaims, and the old browser still holding a member-only cookie.
+  await updateStore((store) => {
+    const mutable = store.brackets.find((entry) => entry.publicToken === bracket.publicToken)! as BracketRecord & {
+      releasedBrowserTokens?: Record<string, string>;
+    };
+    mutable.voterBindings = {};
+    mutable.releasedBrowserTokens = { "old-laptop": alexId };
+    delete mutable.memberClaims;
+    return store;
+  });
+
+  const migrated = await ensureVoterBinding({
+    publicToken: bracket.publicToken,
+    browserToken: "old-laptop-new-token",
+    remembered: alexId,
+  });
+  assert.equal(migrated, null);
+
+  await assert.rejects(
+    () =>
+      claimVoterIdentity({
+        publicToken: bracket.publicToken,
+        browserToken: "old-laptop",
+        rosterMemberName: "Alex",
+        remembered: alexId,
+      }),
+    /freed from this browser/,
+  );
+
+  const stored = (await readStore()).brackets.find((entry) => entry.publicToken === bracket.publicToken)! as BracketRecord & {
+    releasedBrowserTokens?: Record<string, string>;
+  };
+  assert.equal(stored.releasedBrowserTokens, undefined);
+  assert.equal(upgradeLegacyReleases(stored), false);
 });

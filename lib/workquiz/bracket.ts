@@ -29,14 +29,15 @@ import {
   browserTokenForRosterMember,
   findRosterMemberByName,
   releaseRosterMemberBinding,
+  clearReleasedClaims,
+  isReleasedClaim,
   isRememberedClaimCurrent,
   parseRememberedClaim,
+  releasedClaimMarker,
   rememberedRosterMemberId,
   rosterMemberIdForBrowser,
   tryMigrateVoterBinding,
 } from "@/lib/workquiz/voter";
-
-const RELEASED_CLAIM_PREFIX = "released:";
 
 /** Mints the secret for a new registration; older remembered cookies stop matching. */
 function mintMemberClaim(bracket: BracketRecord, rosterMemberId: string) {
@@ -874,7 +875,7 @@ export async function claimVoterIdentity(params: {
     if (currentForBrowser === member.id) {
       const existingClaim = bracket.memberClaims?.[member.id];
       resolvedClaimId =
-        existingClaim && !existingClaim.startsWith(RELEASED_CLAIM_PREFIX)
+        existingClaim && !isReleasedClaim(existingClaim)
           ? existingClaim
           : mintMemberClaim(bracket, member.id);
       resolvedRosterMemberId = member.id;
@@ -1028,12 +1029,14 @@ export function restartBracket(bracket: BracketRecord) {
   const baseStartsAt = bracket.rounds[0]?.startsAt ?? new Date().toISOString();
   bracket.status = "live";
   bracket.voterBindings = {};
+  clearReleasedClaims(bracket);
   recordVoterEvent(bracket, { type: "reset_all", rosterMemberId: null, client: null, note: "Bracket restarted" });
   bracket.rounds = buildRoundsForBracket(bracket, baseStartsAt, bracket.roundDurationHours);
 }
 
 export function clearVoterBindings(bracket: BracketRecord) {
   bracket.voterBindings = {};
+  clearReleasedClaims(bracket);
   recordVoterEvent(bracket, {
     type: "reset_all",
     rosterMemberId: null,
@@ -1053,14 +1056,14 @@ export function releaseVoterBinding(bracket: BracketRecord, rosterMemberId: stri
   }
 
   const previousToken = browserTokenForRosterMember(bracket, rosterMemberId);
-  const alreadyReleased = bracket.memberClaims?.[rosterMemberId]?.startsWith(RELEASED_CLAIM_PREFIX) ?? false;
+  const alreadyReleased = isReleasedClaim(bracket.memberClaims?.[rosterMemberId]);
   if (!previousToken && alreadyReleased) {
     return false;
   }
 
   releaseRosterMemberBinding(bracket, rosterMemberId);
   bracket.memberClaims ??= {};
-  bracket.memberClaims[rosterMemberId] = `${RELEASED_CLAIM_PREFIX}${nanoid(8)}`;
+  bracket.memberClaims[rosterMemberId] = releasedClaimMarker();
   recordVoterEvent(bracket, {
     type: "release",
     rosterMemberId,

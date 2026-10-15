@@ -40,14 +40,15 @@ export function recordVoterEvent(
 }
 
 /**
- * "Browser A3F9": derived from the stored hash itself, so a label never
- * changes between refreshes or when the capped log drops old events.
+ * "Browser A3F9C21B04": the whole stored hash, so a label never changes
+ * between refreshes, never shifts when the capped log drops old events, and
+ * two different browsers can never share one.
  */
 class Labeller {
   constructor(private readonly prefix: string) {}
 
   label(key: string | null | undefined) {
-    return key ? `${this.prefix} ${key.slice(0, 4).toUpperCase()}` : null;
+    return key ? `${this.prefix} ${key.toUpperCase()}` : null;
   }
 }
 

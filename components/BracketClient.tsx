@@ -1279,7 +1279,7 @@ export function BracketClient(props: BracketClientProps) {
           <div className="bw-card">
             <div className="bw-card-title">Names and devices</div>
             <p className="bw-muted">
-              Labels like &ldquo;Browser A3F9&rdquo; never change, so you can match them across flags. Free a name when someone switches
+              Labels like &ldquo;Browser A3F9C21B04&rdquo; never change, so you can match them across flags. Free a name when someone switches
               phones or computers and gets told their name is taken.
             </p>
             <div className="bw-watch-table" role="table">
