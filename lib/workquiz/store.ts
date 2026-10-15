@@ -134,7 +134,9 @@ export async function readStore(): Promise<StoreShape> {
     if (changed) {
       // Persist the repair under the row lock. Writing back this unlocked
       // copy would overwrite any vote or claim committed since the SELECT.
-      await updateStore((locked) => locked);
+      // Return the locked copy: a repair can mint ids, and callers must see
+      // the ids that were actually saved.
+      return await updateStore((locked) => locked);
     }
 
     return store;

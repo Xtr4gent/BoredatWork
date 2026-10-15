@@ -4,7 +4,7 @@ import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
 import { getOrCreateBrowserToken, getRememberedClaim, setRememberedClaim } from "@/lib/workquiz/auth";
 import { buildPublicSnapshot, claimVoterIdentity, findBracketByPublicToken } from "@/lib/workquiz/bracket";
 import { getClientInfo } from "@/lib/workquiz/client-info";
-import { formatRememberedClaim } from "@/lib/workquiz/voter";
+import { mergeRememberedEntry, rememberedEntryForBracket } from "@/lib/workquiz/voter";
 
 export async function POST(
   request: Request,
@@ -29,17 +29,18 @@ export async function POST(
   }
 
   const browserToken = await getOrCreateBrowserToken();
+  const rememberedCookie = await getRememberedClaim();
 
   try {
     const { bracket: updated, rosterMemberId, claimId } = await claimVoterIdentity({
       publicToken,
       browserToken,
       rosterMemberName,
-      remembered: await getRememberedClaim(),
+      remembered: rememberedEntryForBracket(bracket, rememberedCookie),
       client: getClientInfo(request, browserToken),
     });
 
-    await setRememberedClaim(formatRememberedClaim(rosterMemberId, claimId));
+    await setRememberedClaim(mergeRememberedEntry(updated, rememberedCookie, rosterMemberId, claimId));
     return NextResponse.json(
       buildPublicSnapshot(updated, {
         rosterMemberId,

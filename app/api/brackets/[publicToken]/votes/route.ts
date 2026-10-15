@@ -8,7 +8,7 @@ import {
   findBracketByPublicToken,
 } from "@/lib/workquiz/bracket";
 import { getClientInfo } from "@/lib/workquiz/client-info";
-import { rosterMemberIdForBrowser } from "@/lib/workquiz/voter";
+import { rememberedEntryForBracket, rosterMemberIdForBrowser } from "@/lib/workquiz/voter";
 
 export async function POST(
   request: Request,
@@ -34,7 +34,7 @@ export async function POST(
   }
 
   const browserToken = await getOrCreateBrowserToken();
-  const remembered = await getRememberedClaim();
+  const remembered = rememberedEntryForBracket(bracket, await getRememberedClaim());
 
   try {
     const updatedBracket = await castVote({

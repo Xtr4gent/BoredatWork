@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { BracketRecord } from "@/lib/workquiz/types";
-import { tryMigrateVoterBinding, voterBindingNeedsMigration } from "@/lib/workquiz/voter";
+import {
+  mergeRememberedEntry,
+  rememberedEntryForBracket,
+  tryMigrateVoterBinding,
+  voterBindingNeedsMigration,
+} from "@/lib/workquiz/voter";
 
 function fixture(voterBindings: Record<string, string> = {}, memberClaims?: Record<string, string>) {
   return {
@@ -49,3 +54,25 @@ for (const { name, bindings, remembered, claims } of cases) {
     assert.equal(predicted, changed);
   });
 }
+
+test("the remembered cookie keeps one entry per bracket and each bracket reads only its own", () => {
+  const live = fixture();
+  const other = {
+    rosterMembers: [{ id: "x1", name: "Gabe" }],
+    voterBindings: {},
+  } as unknown as BracketRecord;
+
+  let cookie = mergeRememberedEntry(live, null, "m1", "c1");
+  cookie = mergeRememberedEntry(other, cookie, "x1", "k1");
+  assert.equal(rememberedEntryForBracket(live, cookie), "m1~c1");
+  assert.equal(rememberedEntryForBracket(other, cookie), "x1~k1");
+
+  // Re-registering in one bracket replaces only that bracket's entry.
+  cookie = mergeRememberedEntry(live, cookie, "m2", "c2");
+  assert.equal(rememberedEntryForBracket(live, cookie), "m2~c2");
+  assert.equal(rememberedEntryForBracket(other, cookie), "x1~k1");
+
+  // Old single-entry and member-only cookies still read.
+  assert.equal(rememberedEntryForBracket(live, "m1"), "m1");
+  assert.equal(rememberedEntryForBracket(other, "m1~c1"), null);
+});

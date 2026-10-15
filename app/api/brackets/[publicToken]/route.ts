@@ -12,9 +12,10 @@ import { getClientInfo } from "@/lib/workquiz/client-info";
 import { jsonWithETag } from "@/lib/workquiz/etag";
 import {
   boundBrowserNeedsClaimCookie,
-  formatRememberedClaim,
   isRememberedClaimCurrent,
+  mergeRememberedEntry,
   parseRememberedClaim,
+  rememberedEntryForBracket,
   rosterMemberIdForBrowser,
   voterBindingNeedsMigration,
 } from "@/lib/workquiz/voter";
@@ -39,7 +40,8 @@ export async function GET(
   }
 
   const browserToken = await getOrCreateBrowserToken();
-  const remembered = await getRememberedClaim();
+  const rememberedCookie = await getRememberedClaim();
+  const remembered = rememberedEntryForBracket(bracket, rememberedCookie);
   // Only take the locked read-modify-write path (and re-read the store) when
   // this browser's binding actually needs migrating. On a normal poll nothing
   // changes, so this stays a single read with no database write.
@@ -59,8 +61,10 @@ export async function GET(
   if (boundBrowserNeedsClaimCookie(refreshedBracket, browserToken, remembered)) {
     const claim = await ensureClaimForBoundBrowser({ publicToken, browserToken });
     if (claim) {
-      await setRememberedClaim(formatRememberedClaim(claim.rosterMemberId, claim.claimId));
       refreshedBracket = (await findBracketByPublicToken(publicToken)) ?? refreshedBracket;
+      await setRememberedClaim(
+        mergeRememberedEntry(refreshedBracket, rememberedCookie, claim.rosterMemberId, claim.claimId),
+      );
     }
   }
 

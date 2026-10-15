@@ -97,6 +97,9 @@ export function ensureVoterBindings(bracket: BracketRecord) {
  * picked or released.
  */
 const REMEMBERED_SEPARATOR = "~";
+/** Between per-bracket entries: "m1~c1.m9~c9". Ids never contain "." or "~". */
+const REMEMBERED_ENTRY_SEPARATOR = ".";
+const MAX_REMEMBERED_ENTRIES = 5;
 
 export interface RememberedClaim {
   rosterMemberId: string;
@@ -121,6 +124,40 @@ export function parseRememberedClaim(raw: string | null | undefined): Remembered
 
 export function formatRememberedClaim(rosterMemberId: string, claimId: string) {
   return `${rosterMemberId}${REMEMBERED_SEPARATOR}${claimId}`;
+}
+
+/**
+ * A browser can be registered in more than one bracket (say a test bracket
+ * and the live one), so the cookie keeps one entry per bracket. Roster ids
+ * are unique per bracket, so the entry whose member is on this roster is
+ * this bracket's. Returns that single entry, or null.
+ */
+export function rememberedEntryForBracket(bracket: BracketRecord, cookieValue: string | null | undefined) {
+  for (const entry of cookieValue?.split(REMEMBERED_ENTRY_SEPARATOR) ?? []) {
+    const parsed = parseRememberedClaim(entry);
+    if (parsed && bracket.rosterMembers.some((member) => member.id === parsed.rosterMemberId)) {
+      return entry;
+    }
+  }
+
+  return null;
+}
+
+/** Cookie value with this bracket's entry replaced and the others kept (newest last, capped). */
+export function mergeRememberedEntry(
+  bracket: BracketRecord,
+  cookieValue: string | null | undefined,
+  rosterMemberId: string,
+  claimId: string,
+) {
+  const others = (cookieValue?.split(REMEMBERED_ENTRY_SEPARATOR) ?? []).filter((entry) => {
+    const parsed = parseRememberedClaim(entry);
+    return parsed && !bracket.rosterMembers.some((member) => member.id === parsed.rosterMemberId);
+  });
+
+  return [...others, formatRememberedClaim(rosterMemberId, claimId)]
+    .slice(-MAX_REMEMBERED_ENTRIES)
+    .join(REMEMBERED_ENTRY_SEPARATOR);
 }
 
 /** Remembered member id when it is on this bracket's roster, whatever its claim state. */
