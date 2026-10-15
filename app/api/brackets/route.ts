@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { adminWorkspacePath } from "@/lib/workquiz/admin-sections";
-import { createBracket } from "@/lib/workquiz/bracket";
+import { createBracket, markBracketAsCurrentPublic } from "@/lib/workquiz/bracket";
 import { DEFAULT_ROUND_DURATION_HOURS } from "@/lib/workquiz/constants";
 import type { BracketKind, EntrantInput } from "@/lib/workquiz/types";
 import { normalizeContenderInputs, parseContendersFromText } from "@/lib/workquiz/utils";
@@ -20,6 +20,8 @@ export async function POST(request: Request) {
     endsAt?: string;
     totalPlayers?: number;
     roundDurationHours?: number;
+    /** Launch: put this tournament on /voting straight away (public only). */
+    publish?: boolean;
   };
 
   let entrants: ReturnType<typeof normalizeContenderInputs>;
@@ -82,6 +84,12 @@ export async function POST(request: Request) {
     totalPlayers: rosterMembers.length,
     roundDurationHours: body.roundDurationHours ?? DEFAULT_ROUND_DURATION_HOURS,
   });
+
+  // Launch puts the tournament on /voting at once, replacing whatever was
+  // there. Test tournaments never go on /voting.
+  if (body.publish === true && body.kind !== "test") {
+    await markBracketAsCurrentPublic(adminToken);
+  }
 
   return NextResponse.json({
     publicUrl: "/voting",
