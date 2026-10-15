@@ -149,6 +149,7 @@ function buildRoundsForBracket(
   startsAt: string,
   roundDurationHours: number,
   endsAt?: string,
+  nowMs = Date.now(),
 ) {
   const directQualifierEntrantIds = new Set(bracket.directQualifierEntrantIds ?? []);
   const hasManualQualifiers =
@@ -168,7 +169,7 @@ function buildRoundsForBracket(
       startsAt: roundSchedule[index].startsAt,
       endsAt: roundSchedule[index].endsAt,
       status:
-        index === 0 && new Date(roundSchedule[index].startsAt).getTime() <= Date.now()
+        index === 0 && new Date(roundSchedule[index].startsAt).getTime() <= nowMs
           ? "live"
           : "upcoming",
       matchups: [],
@@ -1090,13 +1091,55 @@ export async function castVote(params: {
   return updated;
 }
 
-export function restartBracket(bracket: BracketRecord) {
-  const baseStartsAt = bracket.rounds[0]?.startsAt ?? new Date().toISOString();
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Sends a bracket back to round one with every vote cleared, on a schedule
+ * that starts now rather than replaying the original (now past) dates:
+ * - Daily-window brackets (what the create form makes: e.g. 6 AM to 8 PM,
+ *   one round per day) keep the same time-of-day window, moved forward by
+ *   whole days to the first window that has not ended yet.
+ * - Back-to-back brackets start round one now, keeping each round's length.
+ * Shut-down brackets are refused: restarting must not quietly revive them.
+ */
+export function restartBracket(bracket: BracketRecord, now = new Date()) {
+  if (bracket.status === "disabled") {
+    throw new Error("This tournament has been shut down, so it can't be restarted.");
+  }
+
+  const nowMs = now.getTime();
+  const first = bracket.rounds[0];
+  const originalStart = first ? Date.parse(first.startsAt) : nowMs;
+  const originalEnd = first ? Date.parse(first.endsAt) : originalStart + bracket.roundDurationHours * 60 * 60 * 1000;
+  const second = bracket.rounds[1];
+  const windowLength = originalEnd - originalStart;
+  const isDailyWindow =
+    windowLength < DAY_MS && (!second || Date.parse(second.startsAt) - originalStart === DAY_MS);
+
   bracket.status = "live";
   bracket.voterBindings = {};
   clearReleasedClaims(bracket);
   recordVoterEvent(bracket, { type: "reset_all", rosterMemberId: null, client: null, note: "Bracket restarted" });
-  bracket.rounds = buildRoundsForBracket(bracket, baseStartsAt, bracket.roundDurationHours);
+
+  if (isDailyWindow) {
+    const daysForward = Math.max(0, Math.ceil((nowMs - originalEnd) / DAY_MS));
+    bracket.rounds = buildRoundsForBracket(
+      bracket,
+      new Date(originalStart + daysForward * DAY_MS).toISOString(),
+      bracket.roundDurationHours,
+      new Date(originalEnd + daysForward * DAY_MS).toISOString(),
+      nowMs,
+    );
+    return;
+  }
+
+  bracket.rounds = buildRoundsForBracket(
+    bracket,
+    new Date(Math.max(originalStart, nowMs)).toISOString(),
+    bracket.roundDurationHours,
+    undefined,
+    nowMs,
+  );
 }
 
 export function clearVoterBindings(bracket: BracketRecord) {
