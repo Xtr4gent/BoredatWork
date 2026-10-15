@@ -6,7 +6,7 @@ import {
 } from "@/lib/workquiz/constants";
 import { publish } from "@/lib/workquiz/realtime";
 import { schedulePendingRoundStartPings } from "@/lib/workquiz/round-start-ping";
-import { readStore, updateStore, writeStore } from "@/lib/workquiz/store";
+import { readStore, updateStore } from "@/lib/workquiz/store";
 import {
   AdminVoteEntry,
   AdminHistoryItem,
@@ -20,6 +20,7 @@ import {
   PublicBracketSnapshotRosterStatus,
   RosterMemberRecord,
   RoundRecord,
+  StoreShape,
   VoterClientInfo,
 } from "@/lib/workquiz/types";
 import { browserIdForToken } from "@/lib/workquiz/client-info";
@@ -726,9 +727,9 @@ export function advanceBracket(bracket: BracketRecord, now = new Date()) {
   }
 }
 
-export async function advanceReadyBrackets(now = new Date()) {
-  const store = await readStore();
-  let changed = false;
+/** Advances every eligible bracket in place; returns the public tokens that changed. */
+function advanceEligibleBrackets(store: StoreShape, now: Date) {
+  const changedTokens: string[] = [];
 
   for (const bracket of store.brackets) {
     if (bracket.status === "disabled" || bracketKind(bracket) === "test") {
@@ -738,17 +739,49 @@ export async function advanceReadyBrackets(now = new Date()) {
     const before = JSON.stringify(bracket);
     advanceBracket(bracket, now);
     if (before !== JSON.stringify(bracket)) {
-      changed = true;
-      publish(bracket.publicToken, { type: "advanced" });
+      changedTokens.push(bracket.publicToken);
     }
   }
 
-  if (changed) {
-    await writeStore(store);
+  return changedTokens;
+}
+
+/**
+ * Moves rounds forward when their time comes. Runs on every /api/status hit
+ * and every scheduler tick, so the common case (nothing due) must stay a
+ * single read: the check runs on a throwaway copy. When something is due, the
+ * advance is redone inside updateStore on a fresh, row-locked copy. Writing
+ * back the copy read before the lock would silently drop any vote or name
+ * pick committed in between.
+ *
+ * `options.beforeLockedWrite` exists only so tests can commit a write in that
+ * gap and prove it survives.
+ */
+export async function advanceReadyBrackets(
+  now = new Date(),
+  options?: { beforeLockedWrite?: () => Promise<void> },
+) {
+  const current = await readStore();
+  if (advanceEligibleBrackets(structuredClone(current), now).length === 0) {
+    return current.brackets;
+  }
+
+  await options?.beforeLockedWrite?.();
+
+  let changedTokens: string[] = [];
+  const saved = await updateStore((store) => {
+    changedTokens = advanceEligibleBrackets(store, now);
+    return store;
+  });
+
+  for (const publicToken of changedTokens) {
+    publish(publicToken, { type: "advanced" });
+  }
+  if (changedTokens.length > 0) {
     schedulePendingRoundStartPings();
   }
 
-  return store.brackets;
+  return saved.brackets;
 }
 
 export async function findBracketByPublicToken(publicToken: string) {
