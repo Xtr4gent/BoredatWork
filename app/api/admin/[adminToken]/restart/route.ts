@@ -11,6 +11,7 @@ export async function POST(
 ) {
   const { adminToken } = await context.params;
   let updatedBracketPublicToken: string | null = null;
+  let refusal: string | null = null;
   const updatedStore = await updateStore((store) => {
     const mutable = store.brackets.find((entry) => entry.adminTokenHash === hashValue(adminToken));
 
@@ -18,7 +19,12 @@ export async function POST(
       throw new Error("Bracket not found.");
     }
 
-    restartBracket(mutable);
+    try {
+      restartBracket(mutable);
+    } catch (error) {
+      refusal = error instanceof Error ? error.message : "This tournament can't be restarted.";
+      return store;
+    }
     updatedBracketPublicToken = mutable.publicToken;
     return store;
   }).catch((error) => {
@@ -27,6 +33,10 @@ export async function POST(
     }
     throw error;
   });
+
+  if (refusal) {
+    return NextResponse.json({ error: refusal }, { status: 400 });
+  }
 
   if (!updatedStore || !updatedBracketPublicToken) {
     return NextResponse.json({ error: "Bracket not found." }, { status: 404 });

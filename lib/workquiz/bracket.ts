@@ -149,6 +149,7 @@ function buildRoundsForBracket(
   startsAt: string,
   roundDurationHours: number,
   endsAt?: string,
+  nowMs = Date.now(),
 ) {
   const directQualifierEntrantIds = new Set(bracket.directQualifierEntrantIds ?? []);
   const hasManualQualifiers =
@@ -168,7 +169,7 @@ function buildRoundsForBracket(
       startsAt: roundSchedule[index].startsAt,
       endsAt: roundSchedule[index].endsAt,
       status:
-        index === 0 && new Date(roundSchedule[index].startsAt).getTime() <= Date.now()
+        index === 0 && new Date(roundSchedule[index].startsAt).getTime() <= nowMs
           ? "live"
           : "upcoming",
       matchups: [],
@@ -230,7 +231,7 @@ function buildRoundsForBracket(
     startsAt: roundSchedule[index].startsAt,
     endsAt: roundSchedule[index].endsAt,
     status:
-      index === 0 && new Date(roundSchedule[index].startsAt).getTime() <= Date.now()
+      index === 0 && new Date(roundSchedule[index].startsAt).getTime() <= nowMs
         ? "live"
         : "upcoming",
     matchups: [],
@@ -460,6 +461,7 @@ export async function createBracket(input: CreateBracketInput) {
     publishedAt: new Date().toISOString(),
     totalPlayers: input.totalPlayers,
     roundDurationHours,
+    scheduleKind: input.endsAt ? "daily" : "back-to-back",
     revoteDurationHours: input.revoteDurationHours || DEFAULT_REVOTE_DURATION_HOURS,
     entrants,
     directQualifierEntrantIds,
@@ -1090,13 +1092,79 @@ export async function castVote(params: {
   return updated;
 }
 
-export function restartBracket(bracket: BracketRecord) {
-  const baseStartsAt = bracket.rounds[0]?.startsAt ?? new Date().toISOString();
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * For brackets created before scheduleKind was recorded. The create form is
+ * the only way brackets have been made in practice, and it always sends a
+ * daily window, so a round shorter than a day is read as daily unless the
+ * spacing to round two says otherwise. A single short round cannot be told
+ * apart from a back-to-back one, and daily is the right answer for every
+ * form-made bracket. New brackets record their kind, so none of this applies.
+ */
+function inferScheduleKind(bracket: BracketRecord): "daily" | "back-to-back" {
+  const [first, second] = bracket.rounds;
+  if (!first) {
+    return "back-to-back";
+  }
+
+  const windowLength = Date.parse(first.endsAt) - Date.parse(first.startsAt);
+  if (windowLength >= DAY_MS) {
+    return "back-to-back";
+  }
+
+  return !second || Date.parse(second.startsAt) - Date.parse(first.startsAt) === DAY_MS ? "daily" : "back-to-back";
+}
+
+/**
+ * Sends a bracket back to round one with every vote cleared. The new
+ * schedule never starts in the past (replaying the original, already-ended
+ * dates would close every round on the next advance), and it never pulls a
+ * not-yet-started tournament earlier than it was scheduled:
+ * - Daily-window brackets (what the create form makes: e.g. 6 AM to 8 PM,
+ *   one round per day) keep the same time-of-day window, moved forward by
+ *   whole days to the first window that ends after now.
+ * - Back-to-back brackets start round one now (or at their original start
+ *   if that is still in the future), keeping each round's length.
+ * Shut-down brackets are refused: restarting must not quietly revive them.
+ */
+export function restartBracket(bracket: BracketRecord, now = new Date()) {
+  if (bracket.status === "disabled") {
+    throw new Error("This tournament has been shut down, so it can't be restarted.");
+  }
+
+  const nowMs = now.getTime();
+  const first = bracket.rounds[0];
+  const originalStart = first ? Date.parse(first.startsAt) : nowMs;
+  const originalEnd = first ? Date.parse(first.endsAt) : originalStart + bracket.roundDurationHours * 60 * 60 * 1000;
+  const isDailyWindow = (bracket.scheduleKind ?? inferScheduleKind(bracket)) === "daily";
+
   bracket.status = "live";
   bracket.voterBindings = {};
   clearReleasedClaims(bracket);
   recordVoterEvent(bracket, { type: "reset_all", rosterMemberId: null, client: null, note: "Bracket restarted" });
-  bracket.rounds = buildRoundsForBracket(bracket, baseStartsAt, bracket.roundDurationHours);
+
+  if (isDailyWindow) {
+    // First window that ends strictly after now: at exactly 8 PM today's
+    // window has already closed, so tomorrow's is used.
+    const daysForward = nowMs < originalEnd ? 0 : Math.floor((nowMs - originalEnd) / DAY_MS) + 1;
+    bracket.rounds = buildRoundsForBracket(
+      bracket,
+      new Date(originalStart + daysForward * DAY_MS).toISOString(),
+      bracket.roundDurationHours,
+      new Date(originalEnd + daysForward * DAY_MS).toISOString(),
+      nowMs,
+    );
+    return;
+  }
+
+  bracket.rounds = buildRoundsForBracket(
+    bracket,
+    new Date(Math.max(originalStart, nowMs)).toISOString(),
+    bracket.roundDurationHours,
+    undefined,
+    nowMs,
+  );
 }
 
 export function clearVoterBindings(bracket: BracketRecord) {
