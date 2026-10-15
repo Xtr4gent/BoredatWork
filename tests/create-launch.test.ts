@@ -53,21 +53,40 @@ test("Launch puts the new tournament on /voting, replacing the one that was ther
   assert.equal(launched.scheduleKind, "daily");
 });
 
-test("a test tournament never goes on /voting, even if asked to publish", async () => {
+async function storeWithTournamentOnVoting() {
   await resetStore();
+  const existing = await createBracket({
+    title: "Already on voting",
+    seedingMode: "manual",
+    entrants: ["A", "B"],
+    rosterMembers: roster,
+    startsAt: new Date().toISOString(),
+    totalPlayers: roster.length,
+    roundDurationHours: 1,
+  });
+  await markBracketAsCurrentPublic(existing.adminToken);
+}
+
+async function byTitle(title: string) {
+  return (await readStore()).brackets.find((entry) => entry.title === title)!;
+}
+
+test("a test tournament never goes on /voting, even if asked to publish", async () => {
+  await storeWithTournamentOnVoting();
   const response = await createTournament(request({ kind: "test", publish: true }));
   assert.equal(response.status, 200);
 
-  const [created] = (await readStore()).brackets;
+  const created = await byTitle("Launch Test");
   assert.equal(created.kind, "test");
   assert.equal(created.isCurrentPublic, false);
+  assert.equal((await byTitle("Already on voting")).isCurrentPublic, true, "the existing one stays on /voting");
 });
 
 test("creating without publish leaves /voting alone", async () => {
-  await resetStore();
+  await storeWithTournamentOnVoting();
   const response = await createTournament(request({ kind: "public" }));
   assert.equal(response.status, 200);
 
-  const [created] = (await readStore()).brackets;
-  assert.equal(created.isCurrentPublic, false);
+  assert.equal((await byTitle("Launch Test")).isCurrentPublic, false);
+  assert.equal((await byTitle("Already on voting")).isCurrentPublic, true, "the existing one stays on /voting");
 });

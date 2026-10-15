@@ -87,6 +87,9 @@ function formatRoundDate(value: string) {
 /** yyyy-mm-dd plus whole days, without going through the local clock. */
 function addDays(value: string, days: number) {
   const date = new Date(`${value}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
@@ -192,6 +195,7 @@ export function CreateBracketForm({
   const [directQualifierNames, setDirectQualifierNames] = useState<string[]>([]);
   // Admin form steps: 0 Details, 1 Contenders, 2 Players, 3 Review.
   const [step, setStep] = useState(0);
+  const [furthestStep, setFurthestStep] = useState(0);
 
   const contenderParse = useMemo(() => {
     try {
@@ -265,6 +269,10 @@ export function CreateBracketForm({
       }).catch(() => null);
 
       if (!response) {
+        if (!controller.signal.aborted) {
+          setPreviewSnapshot(null);
+          setPreviewError("Couldn't work out the first round. Check your connection and try again.");
+        }
         setIsPreviewLoading(false);
         return;
       }
@@ -679,7 +687,7 @@ export function CreateBracketForm({
     const stepProblems = [
       !title.trim()
         ? "Give the tournament a topic."
-        : Number.isNaN(new Date(startsAt).getTime())
+        : !/^\d{4}-\d{2}-\d{2}$/.test(roundDate) || Number.isNaN(new Date(startsAt).getTime())
           ? "Pick a date for round one."
           : null,
       contenderParse.error ?? (entrants.length < 2 ? "Add at least two contenders." : null),
@@ -690,10 +698,21 @@ export function CreateBracketForm({
           : null,
       null,
     ];
-    const canOpenStep = (index: number) => stepProblems.slice(0, index).every((problem) => !problem);
+    const canOpenStep = (index: number) =>
+      index <= furthestStep && stepProblems.slice(0, index).every((problem) => !problem);
+    const goToStep = (index: number) => {
+      if (step === 3 && index !== 3) {
+        // Anything changed after this would make the shown matchups wrong;
+        // Review rebuilds the preview when it opens again.
+        setPreviewSnapshot(null);
+        setPreviewError(null);
+      }
+      setStep(index);
+      setFurthestStep((current) => Math.max(current, index));
+    };
     const goNext = () => {
       if (!stepProblems[step]) {
-        setStep((current) => Math.min(current + 1, CREATE_STEPS.length - 1));
+        goToStep(Math.min(step + 1, CREATE_STEPS.length - 1));
       }
     };
     const firstDayLabel = formatRoundDate(roundDate);
@@ -721,7 +740,7 @@ export function CreateBracketForm({
                 aria-current={index === step ? "step" : undefined}
                 className={`bw-step ${index === step ? "active" : ""} ${index < step ? "done" : ""}`}
                 disabled={!canOpenStep(index)}
-                onClick={() => setStep(index)}
+                onClick={() => goToStep(index)}
                 type="button"
               >
                 <span className="bw-step-num">{index + 1}</span>
@@ -1020,7 +1039,7 @@ export function CreateBracketForm({
 
         <div className="bw-btn-row">
           {step > 0 ? (
-            <button className="bw-btn bw-btn-outline" onClick={() => setStep(step - 1)} type="button">
+            <button className="bw-btn bw-btn-outline" onClick={() => goToStep(step - 1)} type="button">
               Back
             </button>
           ) : null}
