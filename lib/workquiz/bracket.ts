@@ -231,7 +231,7 @@ function buildRoundsForBracket(
     startsAt: roundSchedule[index].startsAt,
     endsAt: roundSchedule[index].endsAt,
     status:
-      index === 0 && new Date(roundSchedule[index].startsAt).getTime() <= Date.now()
+      index === 0 && new Date(roundSchedule[index].startsAt).getTime() <= nowMs
         ? "live"
         : "upcoming",
     matchups: [],
@@ -461,6 +461,7 @@ export async function createBracket(input: CreateBracketInput) {
     publishedAt: new Date().toISOString(),
     totalPlayers: input.totalPlayers,
     roundDurationHours,
+    scheduleKind: input.endsAt ? "daily" : "back-to-back",
     revoteDurationHours: input.revoteDurationHours || DEFAULT_REVOTE_DURATION_HOURS,
     entrants,
     directQualifierEntrantIds,
@@ -1093,13 +1094,29 @@ export async function castVote(params: {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** For brackets created before scheduleKind was recorded. */
+function inferScheduleKind(bracket: BracketRecord): "daily" | "back-to-back" {
+  const [first, second] = bracket.rounds;
+  if (!first || !second) {
+    // A single round gives no spacing to go on; starting it now is the safe choice.
+    return "back-to-back";
+  }
+
+  const windowLength = Date.parse(first.endsAt) - Date.parse(first.startsAt);
+  const spacing = Date.parse(second.startsAt) - Date.parse(first.startsAt);
+  return windowLength < DAY_MS && spacing === DAY_MS ? "daily" : "back-to-back";
+}
+
 /**
- * Sends a bracket back to round one with every vote cleared, on a schedule
- * that starts now rather than replaying the original (now past) dates:
+ * Sends a bracket back to round one with every vote cleared. The new
+ * schedule never starts in the past (replaying the original, already-ended
+ * dates would close every round on the next advance), and it never pulls a
+ * not-yet-started tournament earlier than it was scheduled:
  * - Daily-window brackets (what the create form makes: e.g. 6 AM to 8 PM,
  *   one round per day) keep the same time-of-day window, moved forward by
- *   whole days to the first window that has not ended yet.
- * - Back-to-back brackets start round one now, keeping each round's length.
+ *   whole days to the first window that ends after now.
+ * - Back-to-back brackets start round one now (or at their original start
+ *   if that is still in the future), keeping each round's length.
  * Shut-down brackets are refused: restarting must not quietly revive them.
  */
 export function restartBracket(bracket: BracketRecord, now = new Date()) {
@@ -1111,10 +1128,7 @@ export function restartBracket(bracket: BracketRecord, now = new Date()) {
   const first = bracket.rounds[0];
   const originalStart = first ? Date.parse(first.startsAt) : nowMs;
   const originalEnd = first ? Date.parse(first.endsAt) : originalStart + bracket.roundDurationHours * 60 * 60 * 1000;
-  const second = bracket.rounds[1];
-  const windowLength = originalEnd - originalStart;
-  const isDailyWindow =
-    windowLength < DAY_MS && (!second || Date.parse(second.startsAt) - originalStart === DAY_MS);
+  const isDailyWindow = (bracket.scheduleKind ?? inferScheduleKind(bracket)) === "daily";
 
   bracket.status = "live";
   bracket.voterBindings = {};
@@ -1122,7 +1136,9 @@ export function restartBracket(bracket: BracketRecord, now = new Date()) {
   recordVoterEvent(bracket, { type: "reset_all", rosterMemberId: null, client: null, note: "Bracket restarted" });
 
   if (isDailyWindow) {
-    const daysForward = Math.max(0, Math.ceil((nowMs - originalEnd) / DAY_MS));
+    // First window that ends strictly after now: at exactly 8 PM today's
+    // window has already closed, so tomorrow's is used.
+    const daysForward = nowMs < originalEnd ? 0 : Math.floor((nowMs - originalEnd) / DAY_MS) + 1;
     bracket.rounds = buildRoundsForBracket(
       bracket,
       new Date(originalStart + daysForward * DAY_MS).toISOString(),

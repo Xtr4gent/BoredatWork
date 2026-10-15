@@ -99,6 +99,12 @@ export interface BracketRecord {
   publishedAt: string;
   totalPlayers: number;
   roundDurationHours: number;
+  /**
+   * "daily": one round per day in a fixed time-of-day window (what the create
+   * form makes). "back-to-back": rounds run straight after each other.
+   * Missing on brackets created before this was recorded.
+   */
+  scheduleKind?: "daily" | "back-to-back";
   revoteDurationHours: number;
   entrants: EntrantRecord[];
   directQualifierEntrantIds?: string[];
