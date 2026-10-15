@@ -1272,7 +1272,7 @@ export function BracketClient(props: BracketClientProps) {
             <div className="bw-card-header-row">
               <div className="bw-card-title">Flags</div>
               <div className="bw-tag-row">
-                <span className={flags.length ? "bw-tag bw-tag-coral" : "bw-tag bw-tag-lime"}>
+                <span className={flags.length ? "bw-tag bw-tag-coral" : "bw-tag bw-tag-muted"}>
                   {flags.length ? `${flags.length} to review` : "Nothing suspicious"}
                 </span>
               </div>
@@ -1438,7 +1438,7 @@ export function BracketClient(props: BracketClientProps) {
                     );
                     return (
                       <div className="bw-watch-flag">
-                        <span className={registration?.registered ? "bw-tag bw-tag-gold" : "bw-tag bw-tag-lime"}>
+                        <span className={registration?.registered ? "bw-tag bw-tag-gold" : "bw-tag bw-tag-muted"}>
                           {registration?.registered ? "Hidden" : "Visible"}
                         </span>
                         <div>
