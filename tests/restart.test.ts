@@ -127,8 +127,8 @@ test("restart at the exact end of today's window waits for tomorrow's", async ()
   assert.equal(bracket.rounds[0].status, "upcoming", "the new round is not closed straight away");
 });
 
-// Greptile #11 finding 1: a short single-round bracket is not a daily one.
-test("restart of a short single-round bracket starts it now, recorded or inferred", async () => {
+// Greptile #11 finding 1: a short single-round back-to-back bracket starts now.
+test("restart of a short single-round back-to-back bracket starts it now", async () => {
   await resetStore();
   const originalStart = Date.parse("2026-01-05T15:00:00.000Z"); // Monday 10 AM Toronto
   const { bracket } = await createBracket({
@@ -145,12 +145,33 @@ test("restart of a short single-round bracket starts it now, recorded or inferre
 
   restartBracket(bracket, now);
   assert.equal(times(bracket)[0].start, now.getTime());
-
-  // Same answer for a bracket saved before scheduleKind existed.
-  delete bracket.scheduleKind;
-  restartBracket(bracket, now);
-  assert.equal(times(bracket)[0].start, now.getTime());
   assert.equal(times(bracket)[0].status, "live");
+});
+
+// Greptile #11 second pass: a single-round daily bracket saved before
+// scheduleKind existed keeps its daily hours.
+test("restart of an older single-round daily bracket keeps its daily window", async () => {
+  await resetStore();
+  const { bracket } = await createBracket({
+    title: "One round, daily",
+    seedingMode: "manual",
+    entrants: ["Mars", "Twix"],
+    rosterMembers: roster,
+    startsAt: new Date(WINDOW_START).toISOString(),
+    endsAt: new Date(WINDOW_END).toISOString(),
+    totalPlayers: roster.length,
+    roundDurationHours: 14,
+  });
+  assert.equal(bracket.scheduleKind, "daily");
+  delete bracket.scheduleKind; // as saved before this change
+  const now = new Date(WINDOW_END + 3 * DAY + HOUR); // Thursday 9 PM
+
+  restartBracket(bracket, now);
+  const [first] = times(bracket);
+
+  assert.equal(first.start, WINDOW_START + 4 * DAY, "Friday 6 AM, not now");
+  assert.equal(first.end - first.start, 14 * HOUR);
+  assert.equal(first.status, "upcoming");
 });
 
 // Greptile #11 finding 2 (behaviour kept on purpose, now pinned by a test).

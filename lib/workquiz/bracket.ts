@@ -1094,17 +1094,26 @@ export async function castVote(params: {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** For brackets created before scheduleKind was recorded. */
+/**
+ * For brackets created before scheduleKind was recorded. The create form is
+ * the only way brackets have been made in practice, and it always sends a
+ * daily window, so a round shorter than a day is read as daily unless the
+ * spacing to round two says otherwise. A single short round cannot be told
+ * apart from a back-to-back one, and daily is the right answer for every
+ * form-made bracket. New brackets record their kind, so none of this applies.
+ */
 function inferScheduleKind(bracket: BracketRecord): "daily" | "back-to-back" {
   const [first, second] = bracket.rounds;
-  if (!first || !second) {
-    // A single round gives no spacing to go on; starting it now is the safe choice.
+  if (!first) {
     return "back-to-back";
   }
 
   const windowLength = Date.parse(first.endsAt) - Date.parse(first.startsAt);
-  const spacing = Date.parse(second.startsAt) - Date.parse(first.startsAt);
-  return windowLength < DAY_MS && spacing === DAY_MS ? "daily" : "back-to-back";
+  if (windowLength >= DAY_MS) {
+    return "back-to-back";
+  }
+
+  return !second || Date.parse(second.startsAt) - Date.parse(first.startsAt) === DAY_MS ? "daily" : "back-to-back";
 }
 
 /**
