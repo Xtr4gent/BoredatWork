@@ -109,6 +109,13 @@ test("workspace sections round-trip through the URL; unknown slugs open Overview
   assert.equal(adminSectionFromSlug(undefined), "live");
 });
 
+test("sections merged into Settings keep their old links working", () => {
+  for (const legacy of ["rounds", "links", "danger"]) {
+    assert.equal(adminSectionFromSlug(legacy), "settings", legacy);
+  }
+  assert.equal(adminWorkspacePath("abc123", "settings"), "/admin/t/abc123/settings");
+});
+
 test("Back/Forward read the section from the address the same way the page builds it", () => {
   for (const section of Object.keys(ADMIN_SECTION_SLUGS) as AdminSection[]) {
     assert.equal(adminSectionFromPath(adminWorkspacePath("abc123", section)), section);

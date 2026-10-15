@@ -16,6 +16,7 @@ import {
 } from "@/lib/workquiz/types";
 import { AdminTopNav } from "@/components/AdminTopNav";
 import {
+  ADMIN_SECTION_LABELS,
   ADMIN_STATUS_TAG,
   adminSectionFromPath,
   adminTournamentStatus,
@@ -23,6 +24,13 @@ import {
   type AdminSection,
 } from "@/lib/workquiz/admin-sections";
 
+
+const ROUND_STATUS_LABEL: Record<string, string> = {
+  upcoming: "Up next",
+  live: "Voting open",
+  tiebreaker: "Tie to decide",
+  closed: "Done",
+};
 
 // Must match DEVICE_HINT_HEADER in lib/workquiz/client-info.ts (server-only module).
 const DEVICE_HINT_HEADER = "x-workquiz-device";
@@ -500,14 +508,6 @@ export function BracketClient(props: BracketClientProps) {
     void refresh();
   }, [currentRound, nowTick]);
 
-  const displayPublicUrl = useMemo(() => {
-    if (!hydrated) {
-      return snapshot.publicUrl;
-    }
-
-    return new URL(snapshot.publicUrl, window.location.origin).toString();
-  }, [hydrated, snapshot.publicUrl]);
-
   const displayAdminUrl = useMemo(() => {
     if (isPublicSnapshot(snapshot) || !snapshot.adminUrl) {
       return null;
@@ -595,7 +595,6 @@ export function BracketClient(props: BracketClientProps) {
   const activeMatchups = currentRound?.matchups.filter((matchup) => matchup.status === "live") ?? [];
   const tieBreakerMatchups =
     currentRound?.matchups.filter((matchup) => matchup.status === "needs_tiebreaker") ?? [];
-  const primaryMatchup = activeMatchups[0] ?? currentRound?.matchups[0] ?? snapshot.rounds[0]?.matchups[0] ?? null;
   const turnout = percent(snapshot.currentRoundUniqueVoters, snapshot.totalPlayers);
   const pendingRosterCount = Math.max(snapshot.totalPlayers - snapshot.currentRoundUniqueVoters, 0);
   const champion = championName(snapshot);
@@ -721,7 +720,11 @@ export function BracketClient(props: BracketClientProps) {
       return;
     }
 
-    if (!window.confirm("Are you sure you want to advance to the next round early?")) {
+    if (
+      !window.confirm(
+        "End this round now? Voting closes with the votes cast so far. The next round opens at its scheduled time.",
+      )
+    ) {
       return;
     }
 
@@ -740,7 +743,7 @@ export function BracketClient(props: BracketClientProps) {
       return;
     }
 
-    if (!window.confirm("Are you sure you want to restart the bracket from round one?")) {
+    if (!window.confirm("Restart from round one? Every vote is cleared and everyone picks their name again.")) {
       return;
     }
 
@@ -905,6 +908,14 @@ export function BracketClient(props: BracketClientProps) {
 
   async function makeCurrentPublicNow() {
     if (!adminToken) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "Put this tournament on /voting? Players will see it there instead of whatever is showing now.",
+      )
+    ) {
       return;
     }
 
@@ -1308,7 +1319,7 @@ export function BracketClient(props: BracketClientProps) {
           <div className="bw-card">
             <div className="bw-card-title">Names and devices</div>
             <p className="bw-muted">
-              Labels like &ldquo;Browser A3F9C21B04&rdquo; never change, so you can match them across flags. Free a name when someone switches
+              Labels like &ldquo;Browser A3F9C21B04&rdquo; never change, so you can match them across flags. Open a person in Players to free their name when someone switches
               phones or computers and gets told their name is taken.
             </p>
             <div className="bw-watch-table" role="table">
@@ -1338,15 +1349,16 @@ export function BracketClient(props: BracketClientProps) {
                   <span role="cell">{member.networkLabel ?? "-"}</span>
                   <span role="cell">{member.votesCast}</span>
                   <span role="cell">
-                    {member.registered ? (
-                      <button
-                        className="bw-btn bw-btn-outline"
-                        onClick={() => void releaseNameNow(member.rosterMemberId, member.name)}
-                        type="button"
-                      >
-                        Free name
-                      </button>
-                    ) : null}
+                    <button
+                      className="bw-btn bw-btn-outline"
+                      onClick={() => {
+                        setInspectedRosterMemberId(member.rosterMemberId);
+                        setAdminSection("roster");
+                      }}
+                      type="button"
+                    >
+                      Open in Players
+                    </button>
                   </span>
                 </div>
               ))}
@@ -1383,13 +1395,14 @@ export function BracketClient(props: BracketClientProps) {
     if (adminSection === "roster") {
       return (
         <section className="bw-section-panel active">
-          <div className="bw-panel-title">Who&apos;s Voted</div>
+          <div className="bw-panel-title">Players</div>
           <p className="bw-panel-sub">
-            {currentRound?.label ?? "Current round"} · {snapshot.currentRoundUniqueVoters} of {snapshot.totalPlayers} voted
+            {currentRound?.label ?? "Current round"} · {snapshot.currentRoundUniqueVoters} of {snapshot.totalPlayers}{" "}
+            finished voting. Pick a person to see their name, their votes, and fix problems.
           </p>
           <div className="bw-card">
             <div className="bw-card-header-row">
-              <div className="bw-card-title">Roster Status</div>
+              <div className="bw-card-title">Who has voted</div>
               <div className="bw-tag-row">
                 <span className="bw-tag bw-tag-lime">{snapshot.currentRoundUniqueVoters} voted</span>
                 <span className="bw-tag bw-tag-coral">{pendingRosterCount} pending</span>
@@ -1415,8 +1428,9 @@ export function BracketClient(props: BracketClientProps) {
                 </button>
               ))}
             </div>
+            {adminSnapshot.status === "live" ? (
             <div className="bw-roster-add-panel">
-              <div className="bw-card-title">Add Roster Members</div>
+              <div className="bw-card-title">Add players</div>
               <p className="bw-muted">
                 Add someone mid-tournament. They can pick their name on /voting and vote in the current round right away.
               </p>
@@ -1437,10 +1451,11 @@ export function BracketClient(props: BracketClientProps) {
                   onClick={() => void addRosterMembersNow()}
                   type="button"
                 >
-                  {rosterAddPending ? "Adding..." : "Add to Roster"}
+                  {rosterAddPending ? "Adding..." : "Add players"}
                 </button>
               </div>
             </div>
+            ) : null}
             <div className="bw-roster-inspector-detail">
               {inspectedRosterMember
                 ? (() => {
@@ -1518,8 +1533,8 @@ export function BracketClient(props: BracketClientProps) {
     if (adminSection === "results") {
       return (
         <section className="bw-section-panel active">
-          <div className="bw-panel-title">Live Results</div>
-          <p className="bw-panel-sub">All matchups · current round</p>
+          <div className="bw-panel-title">Results</div>
+          <p className="bw-panel-sub">Every round. The current one is highlighted; votes can be cleared only while a matchup is open.</p>
           {adminSnapshot.rounds.map((round) => (
             <div
               className={round.id === adminCurrentRound?.id ? "bw-card" : "bw-card is-dimmed"}
@@ -1527,8 +1542,8 @@ export function BracketClient(props: BracketClientProps) {
             >
               <div className="bw-card-title">
                 {round.label}
-                <span className={`bw-tag ${round.status === "live" ? "bw-tag-lime" : "bw-tag-muted"}`}>
-                  {round.status}
+                <span className={`bw-tag ${round.status === "live" ? "bw-tag-lime" : round.status === "tiebreaker" ? "bw-tag-coral" : "bw-tag-muted"}`}>
+                  {ROUND_STATUS_LABEL[round.status]}
                 </span>
               </div>
               {round.matchups.map((matchup) => (
@@ -1572,89 +1587,53 @@ export function BracketClient(props: BracketClientProps) {
       );
     }
 
-    if (adminSection === "advance") {
+    if (adminSection === "settings") {
+      const isShutDown = adminSnapshot.status === "disabled";
+      const liveRound = adminSnapshot.rounds.find((round) => round.status === "live") ?? null;
       return (
         <section className="bw-section-panel active">
-          <div className="bw-panel-title">Advance Round</div>
-          <p className="bw-panel-sub">Close the current matchup and move the bracket forward.</p>
-          <div className="bw-advance-panel">
-            <div className="bw-advance-card">
-              <div className="bw-advance-card-title">Auto-Advance Timer</div>
-              <div className="bw-timer-display" suppressHydrationWarning>
-                {currentRound?.status === "live" && hydrated
-                  ? formatCountdown(currentRound.endsAt, nowTick)
-                  : "Paused"}
-              </div>
-              <div className="bw-timer-sub">{currentRoundBanner.body}</div>
-            </div>
-            <div className="bw-advance-card">
-              <div className="bw-advance-card-title">Manual Controls</div>
-              <div className="bw-btn-row">
-                <button className="bw-btn bw-btn-lime" onClick={advanceNow} type="button">
-                  Advance to Next Round
-                </button>
-                <button className="bw-btn bw-btn-outline" onClick={restartNow} type="button">
-                  Restart Bracket
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-      );
-    }
+          <div className="bw-panel-title">Settings</div>
+          <p className="bw-panel-sub">Everything that changes how this tournament runs, in one place.</p>
 
-    if (adminSection === "links") {
-      return (
-        <section className="bw-section-panel active">
-          <div className="bw-panel-title">{isTestBracket ? "Test Bracket Links" : "Tournament Links"}</div>
-          <p className="bw-panel-sub">
-            {isTestBracket
-              ? "Private test voting, admin access, and discard controls."
-              : "Current public link, private admin link, and public status controls."}
-          </p>
           <div className="bw-card">
+            <div className="bw-card-header-row">
+              <div className="bw-card-title">Publishing</div>
+              <span className={ADMIN_STATUS_TAG[workspaceStatus].className}>{ADMIN_STATUS_TAG[workspaceStatus].label}</span>
+            </div>
+            <p className="bw-muted">
+              {isShutDown
+                ? "Shut down. Players can't vote on it any more."
+                : isTestBracket
+                  ? "A private test. Only people signed in to admin can vote, using the test link."
+                  : adminSnapshot.isCurrentPublic
+                    ? "This is the tournament players see at /voting."
+                    : "Players can't see this yet. Putting it on /voting replaces whatever is showing there now."}
+            </p>
             <div className="bw-btn-row">
-              {!isTestBracket && !snapshot.isCurrentPublic && snapshot.status !== "disabled" ? (
+              {!isTestBracket && !adminSnapshot.isCurrentPublic && !isShutDown ? (
                 <button className="bw-btn bw-btn-lime" onClick={makeCurrentPublicNow} type="button">
-                  Make Current Public Bracket
+                  Put on /voting
                 </button>
               ) : null}
-              {snapshot.status !== "disabled" ? (
-                <button className="bw-btn bw-btn-danger" onClick={shutDownNow} type="button">
-                  {isTestBracket ? "Discard Test Bracket" : "Shut Down Public Link"}
-                </button>
-              ) : null}
-              {isTestBracket && displayTestUrl ? (
+              {isTestBracket && displayTestUrl && !isShutDown ? (
                 <a className="bw-btn bw-btn-lime" href={displayTestUrl}>
-                  Open Test Voting
+                  Open test voting
                 </a>
               ) : null}
-              <Link className="bw-btn bw-btn-outline" href="/admin/new">
-                New Tournament
-              </Link>
             </div>
             <div className="bw-link-stack">
               <div>
-                <span>{isTestBracket ? "Public status" : "Stable public link"}</span>
+                <span>{isTestBracket ? "Test voting link" : "Player link"}</span>
                 <code>
-                  {isTestBracket
-                    ? "Private test bracket"
-                    : snapshot.isCurrentPublic
-                      ? displayCurrentUrl
-                      : "/voting (not active yet)"}
+                  {isShutDown
+                    ? "Not available (shut down)"
+                    : isTestBracket
+                      ? displayTestUrl
+                      : adminSnapshot.isCurrentPublic
+                        ? displayCurrentUrl
+                        : "Not on /voting yet"}
                 </code>
               </div>
-              {isTestBracket ? (
-                <div>
-                  <span>Test voting link</span>
-                  <code>{snapshot.status === "disabled" ? "Discarded" : displayTestUrl}</code>
-                </div>
-              ) : (
-                <div>
-                  <span>Public voting link</span>
-                  <code>{snapshot.status === "disabled" ? "Disabled" : displayPublicUrl}</code>
-                </div>
-              )}
               {displayAdminUrl ? (
                 <div>
                   <span>Admin link</span>
@@ -1663,137 +1642,193 @@ export function BracketClient(props: BracketClientProps) {
               ) : null}
             </div>
           </div>
+
+          {liveRound ? (
+            <div className="bw-card">
+              <div className="bw-card-title">Rounds</div>
+              <p className="bw-muted" suppressHydrationWarning>
+                {liveRound.label} closes on its own
+                {hydrated ? ` in ${formatCountdown(liveRound.endsAt, nowTick)}` : ""}. End it early to close voting now
+                with the votes cast so far; the next round opens at its scheduled time.
+              </p>
+              <div className="bw-btn-row">
+                <button className="bw-btn bw-btn-outline" onClick={advanceNow} type="button">
+                  End {liveRound.label} now
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {!isShutDown ? (
+            <>
+              <div className="bw-card-title bw-settings-danger-title">Danger</div>
+              {adminSnapshot.status === "live" ? (
+              <div className="bw-danger-card">
+                <div className="bw-danger-card-header">
+                  <div>
+                    <div className="bw-danger-card-title">Reset all names</div>
+                    <div className="bw-danger-card-desc">
+                      Frees every name so everyone picks theirs again on /voting. Votes are kept. To free one person, use
+                      Players.
+                    </div>
+                  </div>
+                  <button className="bw-btn bw-btn-danger" onClick={resetVoterBindingsNow} type="button">
+                    Reset names
+                  </button>
+                </div>
+              </div>
+              ) : null}
+              <div className="bw-danger-card">
+                <div className="bw-danger-card-header">
+                  <div>
+                    <div className="bw-danger-card-title">Restart from round one</div>
+                    <div className="bw-danger-card-desc">
+                      Clears every vote and starts again from round one on a fresh schedule.
+                    </div>
+                  </div>
+                  <button className="bw-btn bw-btn-danger" onClick={restartNow} type="button">
+                    Restart
+                  </button>
+                </div>
+              </div>
+              <div className="bw-danger-card">
+                <div className="bw-danger-card-header">
+                  <div>
+                    <div className="bw-danger-card-title">{isTestBracket ? "Discard this test" : "Shut down"}</div>
+                    <div className="bw-danger-card-desc">
+                      {isTestBracket
+                        ? "Turns the test off and keeps it out of history."
+                        : "Stops voting for good and takes it off /voting. This can't be undone."}
+                    </div>
+                  </div>
+                  <button className="bw-btn bw-btn-danger-solid" onClick={shutDownNow} type="button">
+                    {isTestBracket ? "Discard" : "Shut down"}
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : null}
         </section>
       );
     }
 
-    if (adminSection === "danger") {
-      return (
-        <section className="bw-section-panel active">
-          <div className="bw-panel-title danger">Danger Zone</div>
-          <p className="bw-panel-sub">
-            {isTestBracket
-              ? "These actions only affect this private test bracket. Confirm prompts are required."
-              : "These actions change the active tournament. Confirm prompts are required."}
-          </p>
-          <div className="bw-danger-card">
-            <div className="bw-danger-card-header">
-              <div>
-                <div className="bw-danger-card-title">Reset Name Registrations</div>
-                <div className="bw-danger-card-desc">
-                  Clears stuck &quot;name taken&quot; issues without removing any votes. Send everyone back to /voting to pick their name again.
-                </div>
-              </div>
-              <button className="bw-btn bw-btn-danger" onClick={resetVoterBindingsNow} type="button">
-                Reset Names
-              </button>
-            </div>
-          </div>
-          <div className="bw-danger-card">
-            <div className="bw-danger-card-header">
-              <div>
-                <div className="bw-danger-card-title">Restart Bracket</div>
-                <div className="bw-danger-card-desc">Wipes votes and sends the tournament back to round one.</div>
-              </div>
-              <button className="bw-btn bw-btn-danger" onClick={restartNow} type="button">
-                Restart
-              </button>
-            </div>
-          </div>
-          <div className="bw-danger-card">
-            <div className="bw-danger-card-header">
-              <div>
-                <div className="bw-danger-card-title">Force End Current Round</div>
-                <div className="bw-danger-card-desc">Immediately closes voting with the current results.</div>
-              </div>
-              <button className="bw-btn bw-btn-danger" onClick={advanceNow} type="button">
-                Force End
-              </button>
-            </div>
-          </div>
-          <div className="bw-danger-card">
-            <div className="bw-danger-card-header">
-              <div>
-                <div className="bw-danger-card-title">
-                  {isTestBracket ? "Discard Test Bracket" : "Shut Down Public Link"}
-                </div>
-                <div className="bw-danger-card-desc">
-                  {isTestBracket
-                    ? "Disables this private test bracket and keeps it out of history."
-                    : "Disables public voting for this bracket."}
-                </div>
-              </div>
-              <button className="bw-btn bw-btn-danger-solid" onClick={shutDownNow} type="button">
-                {isTestBracket ? "Discard" : "Shut Down"}
-              </button>
-            </div>
-          </div>
-        </section>
-      );
-    }
+    // Overview
+    const openMatchups = (adminCurrentRound?.matchups ?? []).filter((matchup) => matchup.status === "live");
+    const finalMatchup = adminSnapshot.rounds.at(-1)?.matchups[0];
+    const championName =
+      adminSnapshot.entrants.find((entrant) => entrant.id === finalMatchup?.winnerEntrantId)?.name ?? null;
+    const nextStep =
+      workspaceStatus === "shut-down"
+        ? { title: "This tournament is shut down", body: "Players can't vote on it. Its results are still here." }
+        : workspaceStatus === "test"
+          ? {
+              title: "This is a private test",
+              body: "Only people signed in to admin can vote, using the test link.",
+              action:
+                displayTestUrl ? (
+                  <a className="bw-btn bw-btn-lime" href={displayTestUrl}>
+                    Open test voting
+                  </a>
+                ) : null,
+            }
+          : workspaceStatus === "finished"
+            ? {
+                title: championName ? `Finished. ${championName} won.` : "Finished",
+                body: "Every round is done.",
+                action: (
+                  <button className="bw-btn bw-btn-outline" onClick={() => setAdminSection("results")} type="button">
+                    See results
+                  </button>
+                ),
+              }
+            : workspaceStatus === "running"
+              ? {
+                  title: "Players can't see this yet",
+                  body: "It isn't on /voting. Put it there when you're ready.",
+                  action: (
+                    <button className="bw-btn bw-btn-lime" onClick={makeCurrentPublicNow} type="button">
+                      Put on /voting
+                    </button>
+                  ),
+                }
+              : null;
 
     return (
       <section className="bw-section-panel active">
-        <div className="bw-panel-title">{isTestBracket ? "Test Tournament" : "Live Tournament"}</div>
+        <div className="bw-panel-title">Overview</div>
         <p className="bw-panel-sub">
-          {snapshot.title} · {currentRound ? `${currentRound.label}` : "Bracket complete"}
-          {isTestBracket ? " · Private test mode" : ""}
+          {ADMIN_STATUS_TAG[workspaceStatus].label}
+          {adminCurrentRound ? ` · ${adminCurrentRound.label}` : ""}
+          {adminSnapshot.rounds.length ? ` · ${adminSnapshot.rounds.length} rounds` : ""}
         </p>
-        <div className="bw-stats-row">
-          <div className="bw-stat-card">
-            <div className="bw-stat-val lime">{snapshot.currentRoundUniqueVoters}</div>
-            <div className="bw-stat-label">Votes cast</div>
-          </div>
-          <div className="bw-stat-card">
-            <div className="bw-stat-val coral">{pendingRosterCount}</div>
-            <div className="bw-stat-label">Yet to vote</div>
-          </div>
-          <div className="bw-stat-card">
-            <div className="bw-stat-val">{turnout}%</div>
-            <div className="bw-stat-label">Turnout</div>
-          </div>
-          <div className="bw-stat-card">
-            <div className="bw-stat-val gold" suppressHydrationWarning>
-              {currentRound?.status === "live" && hydrated
-                ? formatCountdown(currentRound.endsAt, nowTick)
-                : snapshot.status}
+
+        {nextStep ? (
+          <div className="bw-watch-flag bw-next-step">
+            <div>
+              <div className="bw-watch-flag-title">{nextStep.title}</div>
+              <p className="bw-muted">{nextStep.body}</p>
             </div>
-            <div className="bw-stat-label">Time left</div>
-          </div>
-        </div>
-        {primaryMatchup ? (
-          <div className="bw-card">
-            <div className="bw-card-title">Current Matchup</div>
-            {renderResultBars(primaryMatchup as BracketSnapshotMatchup)}
-            <p className="bw-muted">
-              {snapshot.currentRoundUniqueVoters} of {snapshot.totalPlayers} roster members have voted
-            </p>
+            {"action" in nextStep && nextStep.action ? <div className="bw-btn-row">{nextStep.action}</div> : null}
           </div>
         ) : null}
-        <div className="bw-card">
-          <div className="bw-card-title">Quick Actions</div>
-          <div className="bw-btn-row">
-            {!isTestBracket && !snapshot.isCurrentPublic && snapshot.status !== "disabled" ? (
-              <button className="bw-btn bw-btn-lime" onClick={makeCurrentPublicNow} type="button">
-                Make Current Public Bracket
-              </button>
-            ) : null}
-            {isTestBracket && displayTestUrl ? (
-              <a className="bw-btn bw-btn-lime" href={displayTestUrl}>
-                Open Test Voting
-              </a>
-            ) : null}
-            <button className="bw-btn bw-btn-lime" onClick={() => setAdminSection("advance")} type="button">
-              Advance to Next Round
-            </button>
-            <button className="bw-btn bw-btn-outline" onClick={() => setAdminSection("roster")} type="button">
-              View Who&apos;s Voted
-            </button>
-            <button className="bw-btn bw-btn-outline" onClick={() => setAdminSection("results")} type="button">
-              Full Results
-            </button>
+
+        {adminSnapshot.status === "live" ? (
+          <div className="bw-stats-row">
+            <div className="bw-stat-card">
+              <div className="bw-stat-val lime">{snapshot.currentRoundUniqueVoters}</div>
+              <div className="bw-stat-label">Finished voting</div>
+            </div>
+            <div className="bw-stat-card">
+              <div className="bw-stat-val coral">{pendingRosterCount}</div>
+              <div className="bw-stat-label">Still to vote</div>
+            </div>
+            <div className="bw-stat-card">
+              <div className="bw-stat-val">{turnout}%</div>
+              <div className="bw-stat-label">Turnout</div>
+            </div>
+            <div className="bw-stat-card">
+              <div className="bw-stat-val gold" suppressHydrationWarning>
+                {adminCurrentRound && hydrated
+                  ? formatCountdown(
+                      adminCurrentRound.status === "upcoming" ? adminCurrentRound.startsAt : adminCurrentRound.endsAt,
+                      nowTick,
+                    )
+                  : "-"}
+              </div>
+              <div className="bw-stat-label">
+                {adminCurrentRound?.status === "upcoming" ? "Until voting opens" : "Until this round closes"}
+              </div>
+            </div>
           </div>
+        ) : null}
+
+        <div className="bw-card">
+          <div className="bw-card-title">
+            {openMatchups.length ? `Open for voting (${openMatchups.length})` : "Open for voting"}
+          </div>
+          {openMatchups.length ? (
+            openMatchups.map((matchup) => (
+              <div className="bw-admin-matchup-block" key={matchup.id}>
+                <div className="bw-matchup-name">{matchupTitle(matchup)}</div>
+                {renderResultBars(matchup)}
+              </div>
+            ))
+          ) : (
+            <p className="bw-muted">Nothing is open for voting right now. {currentRoundBanner.body}</p>
+          )}
         </div>
+
+        {!isTestBracket && adminSnapshot.isCurrentPublic && adminSnapshot.status !== "disabled" ? (
+          <div className="bw-card">
+            <div className="bw-card-title">Player link</div>
+            <div className="bw-link-stack">
+              <div>
+                <span>Share this with players</span>
+                <code>{displayCurrentUrl}</code>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -1813,21 +1848,9 @@ export function BracketClient(props: BracketClientProps) {
                 {ADMIN_STATUS_TAG[workspaceStatus].label}
               </span>
             </div>
-            {(
-              [
-                ["live", "Overview"],
-                ["roster", "Who's Voted"],
-                ["watch", "Vote Watch"],
-                ["results", "Live Results"],
-                ["advance", "Advance Round"],
-                ["links", "Links"],
-                ["danger", "Danger Zone"],
-              ] as Array<[AdminSection, string]>
-            ).map(([section, label]) => (
+            {ADMIN_SECTION_LABELS.map(([section, label]) => (
               <a
-                className={`bw-sidebar-link ${section === "danger" ? "danger-link" : ""} ${
-                  adminSection === section ? "active" : ""
-                }`}
+                className={`bw-sidebar-link ${adminSection === section ? "active" : ""}`}
                 href={adminWorkspacePath(snapshot.id, section)}
                 key={section}
                 onClick={(event) => {

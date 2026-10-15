@@ -3151,3 +3151,21 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* Admin workspace: Overview next step, Settings danger heading */
+.bw-watch-flag.bw-next-step {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.bw-settings-danger-title {
+  margin: 28px 0 12px;
+  color: var(--bw-danger);
+}
+
+@media (max-width: 760px) {
+  .bw-watch-flag.bw-next-step {
+    grid-template-columns: 1fr;
+  }
+}
