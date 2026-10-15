@@ -25,7 +25,6 @@ export default async function NewTournamentPage({
                 : "Set up a fresh bracket."}
             </p>
             <CreateBracketForm
-              variant="admin"
               initialTemplate={
                 templateBracket
                   ? {

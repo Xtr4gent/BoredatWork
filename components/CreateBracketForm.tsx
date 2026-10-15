@@ -150,7 +150,6 @@ type PhotoSuggestion = {
 
 export function CreateBracketForm({
   initialTemplate,
-  variant = "setup",
 }: {
   initialTemplate?: {
     title: string;
@@ -159,7 +158,6 @@ export function CreateBracketForm({
     seedingMode: SeedingMode;
     sourceTitle?: string;
   } | null;
-  variant?: "setup" | "admin";
 }) {
   const router = useRouter();
   const defaultRoundStart = useMemo(() => getNextSixAmRoundStart(), []);
@@ -238,7 +236,8 @@ export function CreateBracketForm({
   }, [contenderParse.error, endsAt, entrants.length, rosterMembers, startsAt, title]);
 
   useEffect(() => {
-    if (variant === "admin" && step !== 3) {
+    // The round-one preview is only needed on the Review step.
+    if (step !== 3) {
       return;
     }
 
@@ -294,7 +293,7 @@ export function CreateBracketForm({
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [directQualifierNames, endsAt, entrants, previewIsValid, previewSeededEntrants, rosterMembers, seedingMode, startsAt, step, title, variant]);
+  }, [directQualifierNames, endsAt, entrants, previewIsValid, previewSeededEntrants, rosterMembers, seedingMode, startsAt, step, title]);
 
   useEffect(() => {
     if (initialTemplate) {
@@ -622,17 +621,17 @@ export function CreateBracketForm({
     setShowAppliedPhotoPreview(true);
   }
 
-  function renderSuggestionActions(suggestion: PhotoSuggestion, style: "admin" | "setup") {
+  function renderSuggestionActions(suggestion: PhotoSuggestion) {
     const key = suggestionNameKey(suggestion.name);
     const manualUrl = manualPhotoUrlByName[key] ?? "";
     const isRefreshing = Boolean(refreshingSuggestionByName[key]);
     const hasFoundImage = suggestion.status === "found" && Boolean(suggestion.imageUrl);
-    const applyButtonClass = style === "admin" ? "bw-time-btn sel" : "pill active";
-    const secondaryButtonClass = style === "admin" ? "bw-time-btn" : "pill";
-    const inputClass = style === "admin" ? "bw-photo-manual-input" : "photo-manual-input";
+    const applyButtonClass = "bw-time-btn sel";
+    const secondaryButtonClass = "bw-time-btn";
+    const inputClass = "bw-photo-manual-input";
 
     return (
-      <div className={style === "admin" ? "bw-photo-suggestion-actions" : "photo-suggestion-actions"}>
+      <div className="bw-photo-suggestion-actions">
         {hasFoundImage ? (
           <>
             <a href={suggestion.sourcePageUrl ?? suggestion.imageUrl} rel="noreferrer" target="_blank">
@@ -647,7 +646,7 @@ export function CreateBracketForm({
             </button>
           </>
         ) : (
-          <span className={style === "admin" ? "bw-card-label" : "muted"}>
+          <span className="bw-card-label">
             {suggestion.status === "error" ? "Error" : "No match"}
           </span>
         )}
@@ -659,7 +658,7 @@ export function CreateBracketForm({
         >
           {isRefreshing ? "Searching..." : "Find another"}
         </button>
-        <div className={style === "admin" ? "bw-photo-manual-row" : "photo-manual-row"}>
+        <div className="bw-photo-manual-row">
           <input
             className={inputClass}
             onChange={(event) => setManualPhotoValue(suggestion.name, event.target.value)}
@@ -681,658 +680,388 @@ export function CreateBracketForm({
 
   const foundPhotoSuggestions = photoSuggestions.filter((suggestion) => suggestion.status === "found");
 
-  if (variant === "admin") {
-    const rosterIsUnique =
-      new Set(rosterMembers.map((member) => member.toLowerCase())).size === rosterMembers.length;
-    const stepProblems = [
-      !title.trim()
-        ? "Give the tournament a topic."
-        : !/^\d{4}-\d{2}-\d{2}$/.test(roundDate) || Number.isNaN(new Date(startsAt).getTime())
-          ? "Pick a date for round one."
-          : null,
-      contenderParse.error ?? (entrants.length < 2 ? "Add at least two contenders." : null),
-      rosterMembers.length < 2
-        ? "Add at least two players."
-        : !rosterIsUnique
-          ? "Each player name must be different."
-          : null,
-      null,
-    ];
-    const canOpenStep = (index: number) =>
-      index <= furthestStep && stepProblems.slice(0, index).every((problem) => !problem);
-    const goToStep = (index: number) => {
-      if (step === 3 && index !== 3) {
-        // Anything changed after this would make the shown matchups wrong;
-        // Review rebuilds the preview when it opens again.
-        setPreviewSnapshot(null);
-        setPreviewError(null);
-      }
-      setStep(index);
-      setFurthestStep((current) => Math.max(current, index));
-    };
-    const goNext = () => {
-      if (!stepProblems[step]) {
-        goToStep(Math.min(step + 1, CREATE_STEPS.length - 1));
-      }
-    };
-    const firstDayLabel = formatRoundDate(roundDate);
-    const windowLabel = `${formatClock(startsAt)} to ${formatClock(endsAt)}`;
-    const previewRoundCount = previewSnapshot?.rounds.length ?? null;
-    const lastDayLabel =
-      previewRoundCount && previewRoundCount > 1 ? formatRoundDate(addDays(roundDate, previewRoundCount - 1)) : null;
+  const rosterIsUnique =
+    new Set(rosterMembers.map((member) => member.toLowerCase())).size === rosterMembers.length;
+  const stepProblems = [
+    !title.trim()
+      ? "Give the tournament a topic."
+      : !/^\d{4}-\d{2}-\d{2}$/.test(roundDate) || Number.isNaN(new Date(startsAt).getTime())
+        ? "Pick a date for round one."
+        : null,
+    contenderParse.error ?? (entrants.length < 2 ? "Add at least two contenders." : null),
+    rosterMembers.length < 2
+      ? "Add at least two players."
+      : !rosterIsUnique
+        ? "Each player name must be different."
+        : null,
+    null,
+  ];
+  const canOpenStep = (index: number) =>
+    index <= furthestStep && stepProblems.slice(0, index).every((problem) => !problem);
+  const goToStep = (index: number) => {
+    if (step === 3 && index !== 3) {
+      // Anything changed after this would make the shown matchups wrong;
+      // Review rebuilds the preview when it opens again.
+      setPreviewSnapshot(null);
+      setPreviewError(null);
+    }
+    setStep(index);
+    setFurthestStep((current) => Math.max(current, index));
+  };
+  const goNext = () => {
+    if (!stepProblems[step]) {
+      goToStep(Math.min(step + 1, CREATE_STEPS.length - 1));
+    }
+  };
+  const firstDayLabel = formatRoundDate(roundDate);
+  const windowLabel = `${formatClock(startsAt)} to ${formatClock(endsAt)}`;
+  const previewRoundCount = previewSnapshot?.rounds.length ?? null;
+  const lastDayLabel =
+    previewRoundCount && previewRoundCount > 1 ? formatRoundDate(addDays(roundDate, previewRoundCount - 1)) : null;
 
-    return (
-      <form
-        action={handleSubmit}
-        className="bw-create-form"
-        onKeyDown={(event) => {
-          // Enter in a text box moves to the next step instead of submitting early.
-          if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT" && step < 3) {
-            event.preventDefault();
-            goNext();
-          }
-        }}
-      >
-        <ol className="bw-steps" aria-label="New tournament steps">
-          {CREATE_STEPS.map((label, index) => (
-            <li key={label}>
-              <button
-                aria-current={index === step ? "step" : undefined}
-                className={`bw-step ${index === step ? "active" : ""} ${index < step ? "done" : ""}`}
-                disabled={!canOpenStep(index)}
-                onClick={() => goToStep(index)}
-                type="button"
-              >
-                <span className="bw-step-num">{index + 1}</span>
-                {label}
-              </button>
-            </li>
-          ))}
-        </ol>
+  return (
+    <form
+      action={handleSubmit}
+      className="bw-create-form"
+      onKeyDown={(event) => {
+        // Enter in a text box moves to the next step instead of submitting early.
+        if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT" && step < 3) {
+          event.preventDefault();
+          goNext();
+        }
+      }}
+    >
+      <ol className="bw-steps" aria-label="New tournament steps">
+        {CREATE_STEPS.map((label, index) => (
+          <li key={label}>
+            <button
+              aria-current={index === step ? "step" : undefined}
+              className={`bw-step ${index === step ? "active" : ""} ${index < step ? "done" : ""}`}
+              disabled={!canOpenStep(index)}
+              onClick={() => goToStep(index)}
+              type="button"
+            >
+              <span className="bw-step-num">{index + 1}</span>
+              {label}
+            </button>
+          </li>
+        ))}
+      </ol>
 
-        {step === 0 ? (
+      {step === 0 ? (
+        <div className="bw-card">
+          <div className="bw-card-title">Details</div>
+          <label className="bw-field">
+            <span>Topic</span>
+            <input
+              name="title"
+              placeholder="e.g. Best 90s Movie, Greatest Snack, Worst Meeting Habit..."
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+            <small>Keep it spicy. Boring topics get boring votes.</small>
+          </label>
+          <label className="bw-field">
+            <span>First round date</span>
+            <input type="date" value={roundDate} onChange={(event) => handleRoundDateChange(event.target.value)} />
+            <small>
+              Round one runs {firstDayLabel} from {windowLabel}. Each later round runs the same hours on the next
+              day, one round per day, and closes on its own.
+            </small>
+          </label>
+        </div>
+      ) : null}
+
+      {step === 1 ? (
+        <>
           <div className="bw-card">
-            <div className="bw-card-title">Details</div>
+            <div className="bw-card-title">Contenders</div>
             <label className="bw-field">
-              <span>Topic</span>
-              <input
-                name="title"
-                placeholder="e.g. Best 90s Movie, Greatest Snack, Worst Meeting Habit..."
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
+              <span>Paste your list</span>
+              <textarea
+                placeholder={"One per line, or Name | https://image-url"}
+                rows={10}
+                value={entrantsText}
+                onChange={(event) => handleEntrantsTextChange(event.target.value)}
               />
-              <small>Keep it spicy. Boring topics get boring votes.</small>
-            </label>
-            <label className="bw-field">
-              <span>First round date</span>
-              <input type="date" value={roundDate} onChange={(event) => handleRoundDateChange(event.target.value)} />
               <small>
-                Round one runs {firstDayLabel} from {windowLabel}. Each later round runs the same hours on the next
-                day, one round per day, and closes on its own.
+                {entrants.length} contender{entrants.length === 1 ? "" : "s"} ready. Add optional pictures with{" "}
+                <code>Name | https://image-url</code>.
               </small>
             </label>
-          </div>
-        ) : null}
-
-        {step === 1 ? (
-          <>
-            <div className="bw-card">
-              <div className="bw-card-title">Contenders</div>
-              <label className="bw-field">
-                <span>Paste your list</span>
-                <textarea
-                  placeholder={"One per line, or Name | https://image-url"}
-                  rows={10}
-                  value={entrantsText}
-                  onChange={(event) => handleEntrantsTextChange(event.target.value)}
-                />
-                <small>
-                  {entrants.length} contender{entrants.length === 1 ? "" : "s"} ready. Add optional pictures with{" "}
-                  <code>Name | https://image-url</code>.
-                </small>
-              </label>
-              <div className="bw-photo-lookup-actions">
-                <button
-                  className="bw-time-btn"
-                  disabled={isPhotoLookupLoading || !!contenderParse.error}
-                  onClick={handlePhotoLookup}
-                  type="button"
-                >
-                  {isPhotoLookupLoading ? "Finding photos..." : "Find photos"}
+            <div className="bw-photo-lookup-actions">
+              <button
+                className="bw-time-btn"
+                disabled={isPhotoLookupLoading || !!contenderParse.error}
+                onClick={handlePhotoLookup}
+                type="button"
+              >
+                {isPhotoLookupLoading ? "Finding photos..." : "Find photos"}
+              </button>
+              {showPhotoReview && foundPhotoSuggestions.length ? (
+                <button className="bw-time-btn sel" onClick={applyPhotoSuggestions} type="button">
+                  Apply {foundPhotoSuggestions.length} suggestion{foundPhotoSuggestions.length === 1 ? "" : "s"}
                 </button>
-                {showPhotoReview && foundPhotoSuggestions.length ? (
-                  <button className="bw-time-btn sel" onClick={applyPhotoSuggestions} type="button">
-                    Apply {foundPhotoSuggestions.length} suggestion{foundPhotoSuggestions.length === 1 ? "" : "s"}
-                  </button>
-                ) : null}
-              </div>
-              <small className="bw-muted">Searches Wikimedia and Google Images for any contender without a picture.</small>
-              {photoLookupError ? <p className="bw-error-text">{photoLookupError}</p> : null}
-              {showPhotoReview ? (
-                <div className="bw-photo-lookup-panel">
-                  <div className="bw-photo-lookup-header">
-                    <span className="bw-card-label">Photo suggestions</span>
-                    <strong>{foundPhotoSuggestions.length} found</strong>
-                  </div>
-                  <div className="bw-photo-lookup-list">
-                    {photoSuggestions.map((suggestion, index) => (
-                      <div className="bw-photo-lookup-item" key={`${suggestion.name}-${index}`}>
-                        <div>
-                          <strong>{suggestion.name}</strong>
-                          <small>{suggestion.reason}</small>
-                        </div>
-                        <div className="bw-photo-suggestion-content">
-                          {suggestion.status === "found" && suggestion.imageUrl ? (
-                            <span
-                              className="bw-photo-suggestion-thumb"
-                              style={{ backgroundImage: `url("${suggestion.thumbnailUrl ?? suggestion.imageUrl}")` }}
-                            />
-                          ) : null}
-                          {renderSuggestionActions(suggestion, "admin")}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {showAppliedPhotoPreview ? (
-                <div className="bw-photo-applied-preview">
-                  <div className="bw-photo-applied-header">
-                    <span className="bw-card-label">Applied photo preview</span>
-                    <strong>
-                      {entrantsWithImages.length}/{entrants.length} with images
-                    </strong>
-                  </div>
-                  <small>Click any tile to open the image. Edit any line above to swap a bad URL before launch.</small>
-                  <div className="bw-photo-applied-grid">
-                    {entrantsWithImages.map((entrant) => (
-                      <a
-                        className="bw-photo-applied-card"
-                        href={entrant.imageUrl}
-                        key={`${entrant.name}-${entrant.imageUrl}`}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        <span
-                          className="bw-photo-applied-image"
-                          style={{ backgroundImage: `url("${entrant.imageUrl}")` }}
-                        />
-                        <span>{entrant.name}</span>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {contenderParse.error ? <p className="bw-error-text">{contenderParse.error}</p> : null}
-              {entrants.length >= 4 ? (
-                <div className="bw-qualifier-panel">
-                  <span className="bw-card-label">Play-in round (optional)</span>
-                  <small>
-                    Pick contenders that go straight into the main bracket. Everyone else plays a play-in match first,
-                    and the winners fill the remaining spots.
-                  </small>
-                  <div className="bw-qualifier-chips">
-                    {entrantNames.map((name) => {
-                      const selected = directQualifierNames.some((entry) => entry.toLowerCase() === name.toLowerCase());
-                      return (
-                        <button
-                          className={selected ? "bw-time-btn sel" : "bw-time-btn"}
-                          key={name}
-                          onClick={() => toggleDirectQualifier(name)}
-                          type="button"
-                        >
-                          {selected ? "Straight in: " : "Play-in: "}
-                          {name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
               ) : null}
             </div>
-
-            {entrants.length > 1 ? (
-              <div className="bw-card">
-                <div className="bw-card-header-row">
-                  <div className="bw-card-title">Seeding</div>
-                  <div className="bw-seed-mode">
-                    <button
-                      className={seedingMode === "manual" ? "bw-time-btn sel" : "bw-time-btn"}
-                      onClick={() => handleSeedingModeChange("manual")}
-                      type="button"
-                    >
-                      My order
-                    </button>
-                    <button
-                      className={seedingMode === "random" ? "bw-time-btn sel" : "bw-time-btn"}
-                      onClick={() => handleSeedingModeChange("random")}
-                      type="button"
-                    >
-                      Random
-                    </button>
-                    {seedingMode === "random" ? (
-                      <button className="bw-time-btn" onClick={reshufflePreview} type="button">
-                        Reshuffle
-                      </button>
-                    ) : null}
-                  </div>
+            <small className="bw-muted">Searches Wikimedia and Google Images for any contender without a picture.</small>
+            {photoLookupError ? <p className="bw-error-text">{photoLookupError}</p> : null}
+            {showPhotoReview ? (
+              <div className="bw-photo-lookup-panel">
+                <div className="bw-photo-lookup-header">
+                  <span className="bw-card-label">Photo suggestions</span>
+                  <strong>{foundPhotoSuggestions.length} found</strong>
                 </div>
-                <p className="bw-muted">
-                  {seedingMode === "manual"
-                    ? "Seed 1 meets the lowest seed. Move contenders up or down to set the order."
-                    : "This shuffled order is the one that will be used. Reshuffle until you like it."}
-                </p>
-                <div className="bw-seed-list">
-                  {(seedingMode === "manual" ? entrants : previewSeededEntrants).map((entrant, index, list) => (
-                    <div className="bw-seed-item" key={`${contenderName(entrant)}-${index}`}>
-                      <strong>#{index + 1}</strong>
-                      <span>{contenderName(entrant)}</span>
-                      {seedingMode === "manual" ? (
-                        <div className="bw-seed-actions">
-                          <button
-                            disabled={index === 0}
-                            onClick={() => updateEntrants(moveContenders(entrants, index, Math.max(0, index - 1)))}
-                            type="button"
-                          >
-                            Up
-                          </button>
-                          <button
-                            disabled={index === list.length - 1}
-                            onClick={() =>
-                              updateEntrants(moveContenders(entrants, index, Math.min(entrants.length - 1, index + 1)))
-                            }
-                            type="button"
-                          >
-                            Down
-                          </button>
-                        </div>
-                      ) : null}
+                <div className="bw-photo-lookup-list">
+                  {photoSuggestions.map((suggestion, index) => (
+                    <div className="bw-photo-lookup-item" key={`${suggestion.name}-${index}`}>
+                      <div>
+                        <strong>{suggestion.name}</strong>
+                        <small>{suggestion.reason}</small>
+                      </div>
+                      <div className="bw-photo-suggestion-content">
+                        {suggestion.status === "found" && suggestion.imageUrl ? (
+                          <span
+                            className="bw-photo-suggestion-thumb"
+                            style={{ backgroundImage: `url("${suggestion.thumbnailUrl ?? suggestion.imageUrl}")` }}
+                          />
+                        ) : null}
+                        {renderSuggestionActions(suggestion)}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             ) : null}
-          </>
-        ) : null}
-
-        {step === 2 ? (
-          <div className="bw-card">
-            <div className="bw-card-title">Players</div>
-            <label className="bw-field">
-              <span>Who can vote, one name per line</span>
-              <textarea
-                placeholder={"Alex\nSam\nJordan\nTaylor"}
-                rows={10}
-                value={rosterText}
-                onChange={(event) => handleRosterTextChange(event.target.value)}
-              />
-              <small>
-                {rosterMembers.length} player{rosterMembers.length === 1 ? "" : "s"}. Each person picks their name on
-                /voting. You can add more players later from the tournament&apos;s Players page.
-              </small>
-            </label>
-          </div>
-        ) : null}
-
-        {step === 3 ? (
-          <div className="bw-card">
-            <div className="bw-card-title">Review</div>
-            <dl className="bw-review-list">
-              <div>
-                <dt>Topic</dt>
-                <dd>{title}</dd>
-              </div>
-              <div>
-                <dt>Schedule</dt>
-                <dd>
-                  {previewRoundCount ? `${previewRoundCount} round${previewRoundCount === 1 ? "" : "s"}, ` : ""}
-                  {firstDayLabel}
-                  {lastDayLabel ? ` to ${lastDayLabel}` : ""}, {windowLabel} each day
-                </dd>
-              </div>
-              <div>
-                <dt>Contenders</dt>
-                <dd>
-                  {entrants.length}
-                  {entrantsWithImages.length ? ` (${entrantsWithImages.length} with photos)` : ""} ·{" "}
-                  {seedingMode === "manual" ? "your order" : "random order"}
-                  {directQualifierNames.length ? ` · ${directQualifierNames.length} straight into the main bracket` : ""}
-                </dd>
-              </div>
-              <div>
-                <dt>Players</dt>
-                <dd>{rosterMembers.length}</dd>
-              </div>
-            </dl>
-            {isPreviewLoading ? <p className="bw-muted">Working out the first round...</p> : null}
-            {previewError ? <p className="bw-error-text">{previewError}</p> : null}
-            {previewSnapshot?.rounds[0] ? (
-              <div className="bw-review-matchups">
-                <span className="bw-card-label">{previewSnapshot.rounds[0].label}</span>
-                <ul>
-                  {previewSnapshot.rounds[0].matchups
-                    // Both sides empty: an unused slot in a bracket that isn't a power of two.
-                    .filter((matchup) => matchup.entrantA || matchup.entrantB)
-                    .map((matchup) =>
-                      matchup.entrantA && matchup.entrantB ? (
-                        <li key={matchup.id}>
-                          {matchup.entrantA.name} vs {matchup.entrantB.name}
-                        </li>
-                      ) : (
-                        <li key={matchup.id}>
-                          {(matchup.entrantA ?? matchup.entrantB)?.name} gets a bye (goes straight through)
-                        </li>
-                      ),
-                    )}
-                </ul>
+            {showAppliedPhotoPreview ? (
+              <div className="bw-photo-applied-preview">
+                <div className="bw-photo-applied-header">
+                  <span className="bw-card-label">Applied photo preview</span>
+                  <strong>
+                    {entrantsWithImages.length}/{entrants.length} with images
+                  </strong>
+                </div>
+                <small>Click any tile to open the image. Edit any line above to swap a bad URL before launch.</small>
+                <div className="bw-photo-applied-grid">
+                  {entrantsWithImages.map((entrant) => (
+                    <a
+                      className="bw-photo-applied-card"
+                      href={entrant.imageUrl}
+                      key={`${entrant.name}-${entrant.imageUrl}`}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <span
+                        className="bw-photo-applied-image"
+                        style={{ backgroundImage: `url("${entrant.imageUrl}")` }}
+                      />
+                      <span>{entrant.name}</span>
+                    </a>
+                  ))}
+                </div>
               </div>
             ) : null}
-            <p className="bw-muted">
-              Launch puts it on /voting straight away, replacing whatever is showing there now. A test stays private:
-              only people signed in to admin can vote, using its test link.
-            </p>
-          </div>
-        ) : null}
-
-        {error ? <p className="bw-error-text">{error}</p> : null}
-        {step < 3 && stepProblems[step] ? <p className="bw-muted">{stepProblems[step]}</p> : null}
-
-        <div className="bw-btn-row">
-          {step > 0 ? (
-            <button className="bw-btn bw-btn-outline" onClick={() => goToStep(step - 1)} type="button">
-              Back
-            </button>
-          ) : null}
-          {step < 3 ? (
-            <button className="bw-btn bw-btn-lime" disabled={Boolean(stepProblems[step])} onClick={goNext} type="button">
-              Next: {CREATE_STEPS[step + 1]}
-            </button>
-          ) : (
-            <>
-              <button
-                className="bw-btn bw-btn-lime bw-launch-button"
-                disabled={isPending}
-                name="kind"
-                type="submit"
-                value="public"
-              >
-                {isPending ? "Launching..." : "Launch and put on /voting"}
-              </button>
-              <button className="bw-btn bw-btn-outline" disabled={isPending} name="kind" type="submit" value="test">
-                {isPending ? "Creating test..." : "Create as test instead"}
-              </button>
-            </>
-          )}
-        </div>
-      </form>
-    );
-  }
-
-  return (
-    <form action={handleSubmit} className="panel stack-lg">
-      <div className="stack-sm">
-        <span className="eyebrow">Start A Bracket</span>
-        <h2>Make the next office showdown in under ten minutes.</h2>
-        <p className="muted">
-          Paste the entrants, set the first round day, and preview the full board before
-          anything goes live. Each round runs from 6:00 AM to 8:00 PM, then the next
-          round opens the next day.
-        </p>
-        {initialTemplate?.sourceTitle ? (
-          <p className="muted">Loaded from previous topic: {initialTemplate.sourceTitle}</p>
-        ) : null}
-      </div>
-
-      <label className="field">
-        <span>Bracket title</span>
-        <input name="title" value={title} onChange={(event) => setTitle(event.target.value)} />
-      </label>
-
-      <label className="field">
-        <span>First round date</span>
-        <input
-          type="date"
-          value={roundDate}
-          onChange={(event) => handleRoundDateChange(event.target.value)}
-        />
-        <span className="muted">Round one opens at 6:00 AM and closes at 8:00 PM.</span>
-      </label>
-      <input name="startsAt" type="hidden" value={startsAt} />
-      <input name="endsAt" type="hidden" value={endsAt} />
-
-      <label className="field">
-        <span>Entrants, one per line</span>
-        <textarea
-          rows={10}
-          value={entrantsText}
-          onChange={(event) => handleEntrantsTextChange(event.target.value)}
-        />
-        <span className="muted">Add optional pictures with `Name | https://image-url`.</span>
-      </label>
-      <div className="photo-lookup-actions">
-        <button className="pill" disabled={isPhotoLookupLoading || !!contenderParse.error} onClick={handlePhotoLookup} type="button">
-          {isPhotoLookupLoading ? "Finding photos..." : "Auto-find photos (Google)"}
-        </button>
-        {showPhotoReview && foundPhotoSuggestions.length ? (
-          <button className="pill active" onClick={applyPhotoSuggestions} type="button">
-            Apply {foundPhotoSuggestions.length} suggestion{foundPhotoSuggestions.length === 1 ? "" : "s"}
-          </button>
-        ) : null}
-      </div>
-      {photoLookupError ? <p className="error-text">{photoLookupError}</p> : null}
-      {showPhotoReview ? (
-        <section className="photo-lookup-panel stack-sm">
-          <div className="inline-row">
-            <span className="eyebrow">Photo Suggestions</span>
-            <strong>{foundPhotoSuggestions.length} found</strong>
-          </div>
-          <div className="photo-lookup-list">
-            {photoSuggestions.map((suggestion, index) => (
-              <article className="photo-lookup-item" key={`${suggestion.name}-${index}`}>
-                <div className="stack-sm">
-                  <strong>{suggestion.name}</strong>
-                  <span className="muted">
-                    {suggestion.reason}
-                    {suggestion.status === "found" ? ` • confidence ${(suggestion.confidence * 100).toFixed(0)}%` : ""}
-                  </span>
-                </div>
-                <div className="photo-suggestion-content">
-                  {suggestion.status === "found" && suggestion.imageUrl ? (
-                    <span
-                      className="photo-suggestion-thumb"
-                      style={{ backgroundImage: `url("${suggestion.thumbnailUrl ?? suggestion.imageUrl}")` }}
-                    />
-                  ) : null}
-                  {renderSuggestionActions(suggestion, "setup")}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
-      {contenderParse.error ? <p className="error-text">{contenderParse.error}</p> : null}
-      {showAppliedPhotoPreview ? (
-        <section className="photo-applied-preview stack-sm">
-          <div className="inline-row">
-            <span className="eyebrow">Applied Photo Preview</span>
-            <strong>
-              {entrantsWithImages.length}/{entrants.length} with images
-            </strong>
-          </div>
-          <span className="muted">Click any tile to open the image. Edit lines above to replace any bad URL before launch.</span>
-          <div className="photo-applied-grid">
-            {entrantsWithImages.map((entrant) => (
-              <a
-                className="photo-applied-card"
-                href={entrant.imageUrl}
-                key={`${entrant.name}-${entrant.imageUrl}`}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <span className="photo-applied-image" style={{ backgroundImage: `url("${entrant.imageUrl}")` }} />
-                <span>{entrant.name}</span>
-              </a>
-            ))}
-          </div>
-        </section>
-      ) : null}
-      {entrants.length >= 4 ? (
-        <section className="photo-lookup-panel stack-sm">
-          <span className="eyebrow">Qualifier Mode (Rare)</span>
-          <span className="muted">
-            Mark contenders that skip play-ins. Unmarked contenders play in qualifier games, and those winners fill the main bracket.
-          </span>
-          <div className="photo-lookup-actions">
-            {entrantNames.map((name) => {
-              const selected = directQualifierNames.some((entry) => entry.toLowerCase() === name.toLowerCase());
-              return (
-                <button
-                  className={selected ? "pill active" : "pill"}
-                  key={name}
-                  onClick={() => toggleDirectQualifier(name)}
-                  type="button"
-                >
-                  {selected ? "Qualifier: " : "Play-in: "}
-                  {name}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
-
-      <label className="field">
-        <span>Team roster, one person per line</span>
-        <textarea
-          rows={8}
-          value={rosterText}
-          onChange={(event) => handleRosterTextChange(event.target.value)}
-        />
-        <span className="muted">We&apos;ll remember this roster on this browser for next time.</span>
-      </label>
-
-      <div className="seed-mode">
-        <button
-          className={seedingMode === "manual" ? "pill active" : "pill"}
-          onClick={() => handleSeedingModeChange("manual")}
-          type="button"
-        >
-          Manual seeding
-        </button>
-        <button
-          className={seedingMode === "random" ? "pill active" : "pill"}
-          onClick={() => handleSeedingModeChange("random")}
-          type="button"
-        >
-          Random draw
-        </button>
-        {seedingMode === "random" ? (
-          <button className="pill" onClick={reshufflePreview} type="button">
-            Reshuffle preview
-          </button>
-        ) : null}
-      </div>
-
-      {seedingMode === "manual" ? (
-        <div className="stack-sm">
-          <div className="inline-row">
-            <h3>Seed preview</h3>
-            <span className="muted">Up and down is enough for V1. Fast beats fancy.</span>
-          </div>
-          <div className="seed-list">
-            {entrants.map((entrant, index) => (
-              <div className="seed-item" key={`${contenderName(entrant)}-${index}`}>
-                <strong>#{index + 1}</strong>
-                <span>{contenderName(entrant)}</span>
-                <div className="seed-actions">
-                  <button
-                    disabled={index === 0}
-                    onClick={() => updateEntrants(moveContenders(entrants, index, Math.max(0, index - 1)))}
-                    type="button"
-                  >
-                    Up
-                  </button>
-                  <button
-                    disabled={index === entrants.length - 1}
-                    onClick={() =>
-                      updateEntrants(moveContenders(entrants, index, Math.min(entrants.length - 1, index + 1)))
-                    }
-                    type="button"
-                  >
-                    Down
-                  </button>
+            {contenderParse.error ? <p className="bw-error-text">{contenderParse.error}</p> : null}
+            {entrants.length >= 4 ? (
+              <div className="bw-qualifier-panel">
+                <span className="bw-card-label">Play-in round (optional)</span>
+                <small>
+                  Pick contenders that go straight into the main bracket. Everyone else plays a play-in match first,
+                  and the winners fill the remaining spots.
+                </small>
+                <div className="bw-qualifier-chips">
+                  {entrantNames.map((name) => {
+                    const selected = directQualifierNames.some((entry) => entry.toLowerCase() === name.toLowerCase());
+                    return (
+                      <button
+                        className={selected ? "bw-time-btn sel" : "bw-time-btn"}
+                        key={name}
+                        onClick={() => toggleDirectQualifier(name)}
+                        type="button"
+                      >
+                        {selected ? "Straight in: " : "Play-in: "}
+                        {name}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-            ))}
+            ) : null}
           </div>
+
+          {entrants.length > 1 ? (
+            <div className="bw-card">
+              <div className="bw-card-header-row">
+                <div className="bw-card-title">Seeding</div>
+                <div className="bw-seed-mode">
+                  <button
+                    className={seedingMode === "manual" ? "bw-time-btn sel" : "bw-time-btn"}
+                    onClick={() => handleSeedingModeChange("manual")}
+                    type="button"
+                  >
+                    My order
+                  </button>
+                  <button
+                    className={seedingMode === "random" ? "bw-time-btn sel" : "bw-time-btn"}
+                    onClick={() => handleSeedingModeChange("random")}
+                    type="button"
+                  >
+                    Random
+                  </button>
+                  {seedingMode === "random" ? (
+                    <button className="bw-time-btn" onClick={reshufflePreview} type="button">
+                      Reshuffle
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <p className="bw-muted">
+                {seedingMode === "manual"
+                  ? "Seed 1 meets the lowest seed. Move contenders up or down to set the order."
+                  : "This shuffled order is the one that will be used. Reshuffle until you like it."}
+              </p>
+              <div className="bw-seed-list">
+                {(seedingMode === "manual" ? entrants : previewSeededEntrants).map((entrant, index, list) => (
+                  <div className="bw-seed-item" key={`${contenderName(entrant)}-${index}`}>
+                    <strong>#{index + 1}</strong>
+                    <span>{contenderName(entrant)}</span>
+                    {seedingMode === "manual" ? (
+                      <div className="bw-seed-actions">
+                        <button
+                          disabled={index === 0}
+                          onClick={() => updateEntrants(moveContenders(entrants, index, Math.max(0, index - 1)))}
+                          type="button"
+                        >
+                          Up
+                        </button>
+                        <button
+                          disabled={index === list.length - 1}
+                          onClick={() =>
+                            updateEntrants(moveContenders(entrants, index, Math.min(entrants.length - 1, index + 1)))
+                          }
+                          type="button"
+                        >
+                          Down
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      {step === 2 ? (
+        <div className="bw-card">
+          <div className="bw-card-title">Players</div>
+          <label className="bw-field">
+            <span>Who can vote, one name per line</span>
+            <textarea
+              placeholder={"Alex\nSam\nJordan\nTaylor"}
+              rows={10}
+              value={rosterText}
+              onChange={(event) => handleRosterTextChange(event.target.value)}
+            />
+            <small>
+              {rosterMembers.length} player{rosterMembers.length === 1 ? "" : "s"}. Each person picks their name on
+              /voting. You can add more players later from the tournament&apos;s Players page.
+            </small>
+          </label>
         </div>
       ) : null}
 
-      <section className="preview-panel stack-sm">
-        <div className="inline-row">
-          <div className="stack-sm">
-            <span className="eyebrow">Live Preview</span>
-            <h3>Check the full bracket before you create it.</h3>
-          </div>
-          {isPreviewLoading ? <span className="muted">Updating preview...</span> : null}
-        </div>
-
-        {previewIsValid && previewError ? <p className="error-text">{previewError}</p> : null}
-
-        {previewIsValid && previewSnapshot ? (
-          <div className="stack-md">
-            <div className="preview-summary">
-              <strong>{previewSnapshot.title}</strong>
-              <span className="muted">
-                {previewSnapshot.rosterMembers.length} players, {previewSnapshot.rounds.length} rounds
-              </span>
+      {step === 3 ? (
+        <div className="bw-card">
+          <div className="bw-card-title">Review</div>
+          <dl className="bw-review-list">
+            <div>
+              <dt>Topic</dt>
+              <dd>{title}</dd>
             </div>
-            <div className="round-grid">
-              {previewSnapshot.rounds.map((round) => (
-                <article className="round-panel" key={round.id}>
-                  <div className="round-title">
-                    <div>
-                      <span className="eyebrow">Stage {round.number}</span>
-                      <h2>{round.label}</h2>
-                    </div>
-                  </div>
-                  <div className="matchup-list">
-                    {round.matchups.map((matchup) => (
-                      <div className="matchup-card" key={matchup.id}>
-                        <div className="entrant-button preview-entrant">
-                          <span>
-                            {matchup.entrantA
-                              ? `#${matchup.entrantA.seed} ${matchup.entrantA.name}`
-                              : "BYE"}
-                          </span>
-                        </div>
-                        <div className="entrant-button preview-entrant">
-                          <span>
-                            {matchup.entrantB
-                              ? `#${matchup.entrantB.seed} ${matchup.entrantB.name}`
-                              : "BYE"}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </article>
-              ))}
+            <div>
+              <dt>Schedule</dt>
+              <dd>
+                {previewRoundCount ? `${previewRoundCount} round${previewRoundCount === 1 ? "" : "s"}, ` : ""}
+                {firstDayLabel}
+                {lastDayLabel ? ` to ${lastDayLabel}` : ""}, {windowLabel} each day
+              </dd>
             </div>
-          </div>
-        ) : (
-          <p className="muted">
-            Add a title, at least two entrants, a unique team roster, and valid round timing to
-            see the full bracket preview.
+            <div>
+              <dt>Contenders</dt>
+              <dd>
+                {entrants.length}
+                {entrantsWithImages.length ? ` (${entrantsWithImages.length} with photos)` : ""} ·{" "}
+                {seedingMode === "manual" ? "your order" : "random order"}
+                {directQualifierNames.length ? ` · ${directQualifierNames.length} straight into the main bracket` : ""}
+              </dd>
+            </div>
+            <div>
+              <dt>Players</dt>
+              <dd>{rosterMembers.length}</dd>
+            </div>
+          </dl>
+          {isPreviewLoading ? <p className="bw-muted">Working out the first round...</p> : null}
+          {previewError ? <p className="bw-error-text">{previewError}</p> : null}
+          {previewSnapshot?.rounds[0] ? (
+            <div className="bw-review-matchups">
+              <span className="bw-card-label">{previewSnapshot.rounds[0].label}</span>
+              <ul>
+                {previewSnapshot.rounds[0].matchups
+                  // Both sides empty: an unused slot in a bracket that isn't a power of two.
+                  .filter((matchup) => matchup.entrantA || matchup.entrantB)
+                  .map((matchup) =>
+                    matchup.entrantA && matchup.entrantB ? (
+                      <li key={matchup.id}>
+                        {matchup.entrantA.name} vs {matchup.entrantB.name}
+                      </li>
+                    ) : (
+                      <li key={matchup.id}>
+                        {(matchup.entrantA ?? matchup.entrantB)?.name} gets a bye (goes straight through)
+                      </li>
+                    ),
+                  )}
+              </ul>
+            </div>
+          ) : null}
+          <p className="bw-muted">
+            Launch puts it on /voting straight away, replacing whatever is showing there now. A test stays private:
+            only people signed in to admin can vote, using its test link.
           </p>
+        </div>
+      ) : null}
+
+      {error ? <p className="bw-error-text">{error}</p> : null}
+      {step < 3 && stepProblems[step] ? <p className="bw-muted">{stepProblems[step]}</p> : null}
+
+      <div className="bw-btn-row">
+        {step > 0 ? (
+          <button className="bw-btn bw-btn-outline" onClick={() => goToStep(step - 1)} type="button">
+            Back
+          </button>
+        ) : null}
+        {step < 3 ? (
+          <button className="bw-btn bw-btn-lime" disabled={Boolean(stepProblems[step])} onClick={goNext} type="button">
+            Next: {CREATE_STEPS[step + 1]}
+          </button>
+        ) : (
+          <>
+            <button
+              className="bw-btn bw-btn-lime bw-launch-button"
+              disabled={isPending}
+              name="kind"
+              type="submit"
+              value="public"
+            >
+              {isPending ? "Launching..." : "Launch and put on /voting"}
+            </button>
+            <button className="bw-btn bw-btn-outline" disabled={isPending} name="kind" type="submit" value="test">
+              {isPending ? "Creating test..." : "Create as test instead"}
+            </button>
+          </>
         )}
-      </section>
-
-      {error ? <p className="error-text">{error}</p> : null}
-
-      <button className="primary-button" disabled={isPending} name="kind" type="submit" value="public">
-        {isPending ? "Creating bracket..." : "Create bracket"}
-      </button>
+      </div>
     </form>
   );
 }
