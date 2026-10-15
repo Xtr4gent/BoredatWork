@@ -1,63 +1,75 @@
 # Design System - Bored@Work
 
+This file describes the app **as it is built** (`app/globals.css`, `app/layout.tsx`).
+When the code and this file disagree, fix whichever one is wrong in the same change;
+do not let them drift apart again.
+
 ## Product Context
-- **What this is:** A tournament-style office voting app with a public player view, a setup flow for admins, and a bracket presentation people actually want to click.
-- **Who it's for:** Small workplace teams running internal morale boosts, recurring bracket games, and lightweight department-wide debates.
-- **Space/industry:** Internal tools, workplace culture software, bracket games, team engagement apps.
+- **What this is:** A tournament-style office voting app with a public landing page, a public voting page (`/voting`), and an admin portal (`/admin`) for running tournaments and players.
+- **Who it's for:** Small workplace teams running internal morale boosts, recurring bracket games, and lightweight department-wide debates. Admins are organisers, not developers.
 - **Project type:** Hybrid landing page plus app UI.
 
 ## Aesthetic Direction
-- **Direction:** Warm editorial sports-bracket
-- **Decoration level:** Intentional
-- **Mood:** Bright, polished, playful, and a little premium. More glossy magazine than dark arcade.
-- **Reference source:** `C:/Users/Gabe/Downloads/Bored_Work.zip`
+- **Direction:** Dark sports-broadcast scoreboard. Near-black surfaces, one bright lime accent, bold condensed-feeling display type.
+- **Mood:** Punchy, live, a little playful. It should feel like a scoreboard during a game, not a spreadsheet.
+- **Theme:** Dark only. There is no light theme; do not add one unless asked.
 
 ## Typography
-- **Display/Hero:** `Barlow Condensed` - tall, punchy, sports-broadcast energy.
-- **Body:** `Instrument Sans` - readable, modern, and calm enough to support the stronger display face.
-- **UI/Labels:** `Instrument Sans` for controls and helper text, `Barlow Condensed` for headings and score-style emphasis.
-- **Data/Tables:** `Instrument Sans`
-- **Code:** Browser monospace defaults for URLs and tokens.
-- **Loading:** Next font via `next/font/google`.
-- **Scale:** Hero `clamp(3.5rem, 9vw, 6.8rem)`, landing hero `clamp(4rem, 10vw, 8rem)`, section headings `clamp(2rem, 5vw, 3.8rem)`, CTA heading `clamp(2.5rem, 6vw, 5rem)`.
+- **Display:** `Syne` 700/800 (`--font-display`). Used for page and panel titles, stats, primary buttons (`.bw-btn-lime`), and score-style emphasis. Other `.bw-btn` variants use `DM Sans`. Panel titles are uppercase with tight tracking (`-0.04em`).
+- **Body / UI / data:** `DM Sans` (`--font-body`). Used for paragraphs, labels, helper text, tables.
+- **Code / URLs / tokens:** browser monospace.
+- **Loading:** `next/font/google` in `app/layout.tsx`.
 
 ## Color
-- **Approach:** Balanced
-- **Primary:** `#db4f2f` - energetic coral-red used for brand emphasis and CTA gradients.
-- **Secondary:** `#8c1c13` - deep red for button depth and destructive actions.
-- **Support:** `#e5bc5a` - warm gold for highlights and active framing.
-- **Neutrals:** `#fff9ed`, `#f5efdf`, `#efe5cf`, `#1d2332`, `#6e6b67`
-- **Semantic:** success `#2c7a4b`, error leans on the deep red family.
-- **Dark mode:** Not the design center. The product should read as a warm light-first experience.
+The `--bw-*` tokens below live on `.bw-vote-app, .bw-admin-app`. The landing page uses separate `:root` tokens: `--bg`, `--bg-2`, `--paper`, `--paper-2`, `--text`, `--muted`, `--line`, and `--accent`. Most colours match, but landing `--muted` is `#8a8a98` and `--line` is `rgba(255, 255, 255, 0.08)`; use the landing names in landing-page styles.
 
-## Spacing
-- **Base unit:** 8px
-- **Density:** Comfortable
-- **Scale:** `xs 4`, `sm 8`, `md 16`, `lg 24`, `xl 32`, `2xl 48`, `3xl 64`
+| Token | Value | Role |
+|-------|-------|------|
+| `--bw-bg` / `--bw-bg2` | `#0d0d10` / `#111116` | Page background |
+| `--bw-card` / `--bw-card2` | `#18181f` / `#1e1e27` | Cards, inset rows |
+| `--bw-border` | `rgba(255,255,255,0.07)` | Hairline borders |
+| `--bw-white` | `#f0f0ee` | Primary text |
+| `--bw-muted` | `#555568` | Secondary text, neutral tags |
+| `--bw-lime` | `#c8f53c` | **The accent.** Primary action buttons (`.bw-btn-lime`), live / voted / positive state |
+| `--bw-coral` | `#ff5e3a` | Attention: pending, needs review, flags |
+| `--bw-gold` | `#f5c842` | Notable but not urgent: highlights, "hidden" name state, medium flags, countdowns |
+| `--bw-danger` | `#ff3a3a` | Destructive actions and the Danger area only |
+| `--bw-purple` | `#9b6dff` | Rare decorative accent; do not use for meaning |
 
-## Layout
-- **Approach:** Hybrid
-- **Grid:** Two-column hero and admin header on desktop, single column on mobile.
-- **Max content width:** `1200px`
-- **Border radius:** pills `999px`, controls `16px`, cards `18-28px`
-- **Surface model:** Warm glass cards over a cream atmospheric background with soft blur and subtle glow.
+Rules:
+- **Lime means "go" or "good".** Use it for the one primary action on a screen and for live/positive status. Do not use lime for neutral information.
+- **Neutral status uses `.bw-tag-muted`.** A badge that is just a fact (e.g. "Visible", "Nothing suspicious") is muted, not lime.
+- **Coral asks for attention, red is destructive.** Never use red for something that is merely pending.
+- One accent colour per element; no gradients on new UI.
+
+## Components (existing classes to reuse)
+- Buttons: `.bw-btn` + `.bw-btn-lime` (primary), `.bw-btn-outline` (secondary), `.bw-btn-danger` / `.bw-btn-danger-solid` (destructive). Group with `.bw-btn-row`.
+- Tags: `.bw-tag` + `.bw-tag-lime` / `.bw-tag-coral` / `.bw-tag-gold` / `.bw-tag-muted`. Pill shaped, small uppercase.
+- Surfaces: `.bw-card`, `.bw-section-panel` with `.bw-panel-title` + `.bw-panel-sub`.
+- Admin layout: `.bw-admin-app` > `.bw-admin-nav` + `.bw-admin-main` (`.bw-sidebar` + `.bw-admin-content`).
+
+## Spacing and shape
+- **Base unit:** 8px; comfortable density.
+- **Radius:** pills `999px`; buttons, inputs and rows `10-12px`; cards `14-16px`.
+- **Max content width:** `1200px`.
 
 ## Motion
-- **Approach:** Intentional
-- **Easing:** ease / ease-in-out
-- **Duration:** micro `150-200ms`, reveal `600ms`, ticker `22s linear`
-- **Principle:** Motion should support the “live tournament” feel without making the app feel gimmicky.
+- Micro interactions `150-200ms` ease; reveals up to `600ms`.
+- Motion supports the "live tournament" feel (countdowns, live dots); never decorative loops on admin screens.
+
+## Layout
+- Mobile first where players use it (`/voting`): single column, large tap targets.
+- Admin: sidebar + content on desktop; the sidebar is hidden at `768px` and below.
+- Phone width: 16px side gutters, no horizontal page scroll.
 
 ## Rules
-- Use the warm paper background and translucent cream cards from the reference file.
-- Keep landing section spacing, heading sizes, and bracket-card proportions close to the reference.
-- Primary CTA buttons use the coral-to-deep-red gradient.
-- Use gold as the framed highlight, not lime or violet.
-- Headings stay uppercase and condensed.
-- Avoid dark-theme drift unless the user explicitly asks for it.
+- Reuse the classes above before adding new ones; new classes use the `bw-` prefix and the tokens, never raw hex.
+- Admin copy is for organisers: say what a control does in plain words ("End round now", not "Force advance").
+- Show a control only when it can work in the current state.
 
 ## Decisions Log
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2026-04-21 | Restored the warm paper visual system from the provided reference file | User asked for the site to match the exact supplied design |
 | 2026-04-21 | Standardized on Barlow Condensed + Instrument Sans | Matches the supplied layout and preserves the sports-bracket feel |
+| 2026-10-15 | Rewrote this file to match the live app: dark theme, lime accent, Syne + DM Sans | The app moved to the dark scoreboard look; the old light/cream spec no longer described anything in the code and reviewers were enforcing it against new work (Gabe approved) |
