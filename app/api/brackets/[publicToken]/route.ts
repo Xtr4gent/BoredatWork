@@ -7,8 +7,13 @@ import {
   ensureVoterBinding,
   findBracketByPublicToken,
 } from "@/lib/workquiz/bracket";
+import { getClientInfo } from "@/lib/workquiz/client-info";
 import { jsonWithETag } from "@/lib/workquiz/etag";
-import { rosterMemberIdForBrowser, voterBindingNeedsMigration } from "@/lib/workquiz/voter";
+import {
+  rosterMemberIdForBrowser,
+  voterBindingNeedsMigration,
+  wasReleasedFromBrowser,
+} from "@/lib/workquiz/voter";
 
 export async function GET(
   request: Request,
@@ -40,12 +45,18 @@ export async function GET(
       publicToken,
       browserToken,
       rememberedRosterMemberId,
+      client: getClientInfo(request, browserToken),
     });
     refreshedBracket = (await findBracketByPublicToken(publicToken)) ?? bracket;
   }
 
-  const rosterMemberId =
-    rosterMemberIdForBrowser(refreshedBracket, browserToken) ?? rememberedRosterMemberId;
+  // An admin-freed browser no longer counts as that person, even for display.
+  const rememberedForDisplay =
+    rememberedRosterMemberId &&
+    !wasReleasedFromBrowser(refreshedBracket, browserToken, rememberedRosterMemberId)
+      ? rememberedRosterMemberId
+      : null;
+  const rosterMemberId = rosterMemberIdForBrowser(refreshedBracket, browserToken) ?? rememberedForDisplay;
 
   return jsonWithETag(
     request,

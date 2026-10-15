@@ -11,10 +11,105 @@ import {
   PublicBracketSnapshotEntrant,
   PublicBracketSnapshotMatchup,
   BracketSnapshotRound,
+  VoteWatchSeverity,
+  VoterEventType,
 } from "@/lib/workquiz/types";
 import { CreateBracketForm } from "@/components/CreateBracketForm";
 
-type AdminSection = "live" | "roster" | "results" | "advance" | "create" | "links" | "history" | "danger";
+type AdminSection =
+  | "live"
+  | "roster"
+  | "watch"
+  | "results"
+  | "advance"
+  | "create"
+  | "links"
+  | "history"
+  | "danger";
+
+// Must match DEVICE_HINT_HEADER in lib/workquiz/client-info.ts (server-only module).
+const DEVICE_HINT_HEADER = "x-workquiz-device";
+
+let cachedDeviceHint: string | null = null;
+
+/**
+ * Coarse description of the physical device (screen, time zone, hardware,
+ * how it draws text). Two browsers on one PC usually produce the same hint,
+ * which is what lets Vote Watch spot one person voting as several names. The
+ * server only stores a keyed hash of it.
+ */
+function deviceHint() {
+  if (cachedDeviceHint !== null) {
+    return cachedDeviceHint;
+  }
+
+  try {
+    const nav = navigator as Navigator & { deviceMemory?: number };
+    const parts: Array<string | number> = [
+      screen.width,
+      screen.height,
+      screen.colorDepth,
+      window.devicePixelRatio,
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+      nav.hardwareConcurrency ?? "",
+      nav.deviceMemory ?? "",
+      nav.maxTouchPoints ?? "",
+      (nav.languages ?? []).join(","),
+    ];
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 220;
+    canvas.height = 40;
+    const context = canvas.getContext("2d");
+    if (context) {
+      context.textBaseline = "top";
+      context.font = "16px Arial";
+      context.fillStyle = "#f60";
+      context.fillRect(0, 0, 110, 20);
+      context.fillStyle = "#069";
+      context.fillText("Bored@Work vote 1234", 2, 2);
+      // FNV-1a over the whole image: the tail of a PNG data URL is the same
+      // on every device, so it has to be hashed rather than truncated.
+      const data = canvas.toDataURL();
+      let hash = 0x811c9dc5;
+      for (let index = 0; index < data.length; index += 1) {
+        hash ^= data.charCodeAt(index);
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+      }
+      parts.push(hash.toString(16));
+    }
+
+    // Header values must be printable ASCII.
+    cachedDeviceHint = parts.join("|").replace(/[^\x20-\x7e]/g, "").slice(0, 512);
+  } catch {
+    cachedDeviceHint = "";
+  }
+
+  return cachedDeviceHint;
+}
+
+function voteRequestHeaders() {
+  const hint = deviceHint();
+  return {
+    "Content-Type": "application/json",
+    ...(hint ? { [DEVICE_HINT_HEADER]: hint } : {}),
+  };
+}
+
+const voteWatchSeverityTag: Record<VoteWatchSeverity, string> = {
+  high: "bw-tag bw-tag-coral",
+  medium: "bw-tag bw-tag-gold",
+  low: "bw-tag bw-tag-muted",
+};
+
+const voterEventLabel: Record<VoterEventType, string> = {
+  claim: "Picked name",
+  claim_blocked: "Blocked: name taken",
+  switch_blocked: "Blocked: tried to switch name",
+  reclaim: "Moved to new browser",
+  release: "Name freed by admin",
+  reset_all: "All names reset",
+};
 
 const easternFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
@@ -542,7 +637,7 @@ export function BracketClient(props: BracketClientProps) {
 
       const response = await fetch(`/api/brackets/${token}/identity`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: voteRequestHeaders(),
         body: JSON.stringify({ rosterMemberName: nextRosterMemberName }),
       });
       const result = (await response.json()) as PublicBracketSnapshot & { error?: string };
@@ -582,7 +677,7 @@ export function BracketClient(props: BracketClientProps) {
 
     const response = await fetch(`/api/brackets/${token}/votes`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: voteRequestHeaders(),
       body: JSON.stringify({ matchupSlot, side }),
     });
     const result = (await response.json()) as PublicBracketSnapshot & { error?: string };
@@ -659,6 +754,38 @@ export function BracketClient(props: BracketClientProps) {
     const result = (await response.json()) as BracketSnapshot & { error?: string };
     if (!response.ok) {
       setError(result.error ?? "Could not reset voter registrations.");
+      return;
+    }
+
+    setSnapshot(result);
+  }
+
+  const voteWatchAlertCount = isPublicSnapshot(snapshot)
+    ? 0
+    : (snapshot.voteWatch?.flags.filter((flag) => flag.severity !== "low").length ?? 0);
+
+  async function releaseNameNow(rosterMemberId: string, name: string) {
+    if (!adminToken) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Free up ${name}'s name? Their votes stay. The next browser to pick ${name} on /voting gets it.`,
+      )
+    ) {
+      return;
+    }
+
+    setError(null);
+    const response = await fetch(`/api/admin/${adminToken}/bindings/release`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rosterMemberId }),
+    });
+    const result = (await response.json()) as BracketSnapshot & { error?: string };
+    if (!response.ok) {
+      setError(result.error ?? "Could not free that name.");
       return;
     }
 
@@ -1111,6 +1238,118 @@ export function BracketClient(props: BracketClientProps) {
 
     const adminSnapshot = snapshot;
     const adminCurrentRound = currentRound as BracketSnapshotRound | null;
+
+    if (adminSection === "watch") {
+      const watch = adminSnapshot.voteWatch;
+      const flags = watch?.flags ?? [];
+      return (
+        <section className="bw-section-panel active">
+          <div className="bw-panel-title">Vote Watch</div>
+          <p className="bw-panel-sub">
+            Who picked which name from which browser. Flags are hints, not proof: identical work PCs on the office
+            network can look alike.
+          </p>
+
+          <div className="bw-card">
+            <div className="bw-card-header-row">
+              <div className="bw-card-title">Flags</div>
+              <div className="bw-tag-row">
+                <span className={flags.length ? "bw-tag bw-tag-coral" : "bw-tag bw-tag-lime"}>
+                  {flags.length ? `${flags.length} to review` : "Nothing suspicious"}
+                </span>
+              </div>
+            </div>
+            {flags.length ? (
+              <div className="bw-watch-list">
+                {flags.map((flag) => (
+                  <div className="bw-watch-flag" key={flag.id}>
+                    <span className={voteWatchSeverityTag[flag.severity]}>{flag.severity}</span>
+                    <div>
+                      <div className="bw-watch-flag-title">{flag.title}</div>
+                      <p className="bw-muted">{flag.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="bw-muted">No one has used two names from one browser or device, and no takeovers were tried.</p>
+            )}
+          </div>
+
+          <div className="bw-card">
+            <div className="bw-card-title">Names and devices</div>
+            <p className="bw-muted">
+              Labels like &ldquo;Browser 3&rdquo; are stable within this tournament. Free a name when someone switches
+              phones or computers and gets told their name is taken.
+            </p>
+            <div className="bw-watch-table" role="table">
+              <div className="bw-watch-row bw-watch-head" role="row">
+                <span role="columnheader">Name</span>
+                <span role="columnheader">Browser</span>
+                <span role="columnheader">Network</span>
+                <span role="columnheader">Votes</span>
+                <span role="columnheader" />
+              </div>
+              {(watch?.members ?? []).map((member) => (
+                <div className="bw-watch-row" key={member.rosterMemberId} role="row">
+                  <span role="cell">
+                    <strong>{member.name}</strong>
+                    {member.browsersUsed > 1 ? (
+                      <span className="bw-tag bw-tag-gold">{member.browsersUsed} browsers</span>
+                    ) : null}
+                  </span>
+                  <span role="cell">
+                    {member.registered
+                      ? member.browserLabel
+                      : member.browserLabel
+                        ? `Not registered (last: ${member.browserLabel})`
+                        : "Not registered"}
+                    {member.agent ? <small className="bw-muted"> {member.agent}</small> : null}
+                  </span>
+                  <span role="cell">{member.networkLabel ?? "-"}</span>
+                  <span role="cell">{member.votesCast}</span>
+                  <span role="cell">
+                    {member.registered ? (
+                      <button
+                        className="bw-btn bw-btn-outline"
+                        onClick={() => void releaseNameNow(member.rosterMemberId, member.name)}
+                        type="button"
+                      >
+                        Free name
+                      </button>
+                    ) : null}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bw-card">
+            <div className="bw-card-title">Recent activity</div>
+            {watch?.recentEvents.length ? (
+              <div className="bw-watch-list">
+                {watch.recentEvents.map((event) => (
+                  <div className="bw-watch-event" key={event.id}>
+                    <span className="bw-watch-event-time">{formatEasternDateTime(event.at)}</span>
+                    <span>
+                      <strong>{voterEventLabel[event.type]}</strong>
+                      {event.rosterMemberName ? ` · ${event.rosterMemberName}` : ""}
+                      {event.type === "switch_blocked" && event.note ? ` (registered as ${event.note})` : ""}
+                      {event.type !== "switch_blocked" && event.note ? ` · ${event.note}` : ""}
+                    </span>
+                    <span className="bw-muted">
+                      {[event.browserLabel, event.agent, event.networkLabel].filter(Boolean).join(" · ")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="bw-muted">Nothing logged yet. Activity starts recording from this update onwards.</p>
+            )}
+          </div>
+        </section>
+      );
+    }
 
     if (adminSection === "roster") {
       return (
@@ -1579,6 +1818,7 @@ export function BracketClient(props: BracketClientProps) {
             {[
               ["live", "Overview"],
               ["roster", "Who's Voted"],
+              ["watch", "Vote Watch"],
               ["results", "Live Results"],
               ["advance", "Advance Round"],
               ["links", "Links"],
@@ -1591,6 +1831,9 @@ export function BracketClient(props: BracketClientProps) {
               >
                 <span>{label}</span>
                 {section === "live" ? <span className="bw-sidebar-live-dot" /> : null}
+                {section === "watch" && voteWatchAlertCount > 0 ? (
+                  <span className="bw-tag bw-tag-coral">{voteWatchAlertCount}</span>
+                ) : null}
               </button>
             ))}
             <div className="bw-sidebar-label">Setup</div>
@@ -1668,7 +1911,8 @@ export function BracketClient(props: BracketClientProps) {
               Who are you?
             </div>
             <p className="bw-modal-sub">
-              Pick your name to cast your vote. Tap your name again if you cleared cookies or switched browsers.
+              Pick your name to cast your vote. Each name works on one device. If yours shows as taken, ask the
+              organiser to free it up.
             </p>
             <div className="bw-modal-roster">
               {isPublicSnapshot(snapshot)
@@ -1677,12 +1921,13 @@ export function BracketClient(props: BracketClientProps) {
                       className={`bw-roster-btn ${
                         member.isYou || member.name === selectedRosterMemberName ? "selected" : ""
                       }`}
+                      disabled={member.claimed && !member.isYou}
                       key={member.name}
                       onClick={() => void handleRosterSelection(member.name)}
                       type="button"
                     >
                       {member.name}
-                      {member.isYou ? " (you)" : member.claimed ? " (tap to use here)" : ""}
+                      {member.isYou ? " (you)" : member.claimed ? " (taken)" : ""}
                     </button>
                   ))
                 : null}

@@ -1277,20 +1277,35 @@ test("claimVoterIdentity binds one browser to one roster name", async () => {
   });
   assert.equal(first.rosterMemberId, bracket.rosterMembers[0].id);
 
-  const reclaimed = await claimVoterIdentity({
+  // A different browser cannot take a name that is already registered.
+  await assert.rejects(
+    () =>
+      claimVoterIdentity({
+        publicToken: bracket.publicToken,
+        browserToken: "browser-b",
+        rosterMemberName: roster[0],
+      }),
+    /already registered on another device/,
+  );
+
+  // A registered browser cannot switch to someone else's name.
+  await assert.rejects(
+    () =>
+      claimVoterIdentity({
+        publicToken: bracket.publicToken,
+        browserToken: "browser-a",
+        rosterMemberName: roster[1],
+      }),
+    /already registered as/,
+  );
+
+  // Picking your own name again is a no-op.
+  const again = await claimVoterIdentity({
     publicToken: bracket.publicToken,
-    browserToken: "browser-b",
+    browserToken: "browser-a",
     rosterMemberName: roster[0],
   });
-  assert.equal(reclaimed.rosterMemberId, bracket.rosterMembers[0].id);
-
-  await assert.rejects(() =>
-    claimVoterIdentity({
-      publicToken: bracket.publicToken,
-      browserToken: "browser-a",
-      rosterMemberName: roster[1],
-    }),
-  );
+  assert.equal(again.rosterMemberId, bracket.rosterMembers[0].id);
 });
 
 test("buildPublicSnapshot hides internal ids and resolves vote sides", async () => {

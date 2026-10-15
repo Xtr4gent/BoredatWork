@@ -8,6 +8,15 @@ export function ensureVoterBindings(bracket: BracketRecord) {
   bracket.voterBindings ??= {};
 }
 
+/**
+ * True when an admin freed this name from this exact browser. Such a browser
+ * still remembers the name, but must not grab it back on its next poll, or a
+ * person moving to a new device would lose the name to their old open tab.
+ */
+export function wasReleasedFromBrowser(bracket: BracketRecord, browserToken: string, rosterMemberId: string) {
+  return bracket.releasedBrowserTokens?.[browserToken] === rosterMemberId;
+}
+
 export function rosterMemberIdForBrowser(bracket: BracketRecord, browserToken: string) {
   ensureVoterBindings(bracket);
   return bracket.voterBindings![browserToken] ?? null;
@@ -87,7 +96,8 @@ export function voterBindingNeedsMigration(
 
   return Boolean(
     rememberedRosterMemberId &&
-      bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId),
+      bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId) &&
+      !wasReleasedFromBrowser(bracket, browserToken, rememberedRosterMemberId),
   );
 }
 
@@ -103,7 +113,8 @@ export function tryMigrateVoterBinding(
 
   if (
     !rememberedRosterMemberId ||
-    !bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId)
+    !bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId) ||
+    wasReleasedFromBrowser(bracket, browserToken, rememberedRosterMemberId)
   ) {
     return null;
   }

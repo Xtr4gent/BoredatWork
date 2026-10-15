@@ -154,7 +154,7 @@ test("SECURITY: one browser cannot claim two roster names", async () => {
   );
 });
 
-test("SECURITY: a browser can reclaim a roster name after cookies are cleared", async () => {
+test("SECURITY: a browser can reclaim its own roster name after its main cookie is cleared", async () => {
   await resetStore();
   const { bracket } = await createBracket({
     title: "Smoke",
@@ -172,10 +172,23 @@ test("SECURITY: a browser can reclaim a roster name after cookies are cleared", 
     rosterMemberName: roster[0],
   });
 
+  // Without the remembered roster id this is someone else's browser: blocked.
+  await assert.rejects(
+    () =>
+      claimVoterIdentity({
+        publicToken: bracket.publicToken,
+        browserToken: "browser-b",
+        rosterMemberName: roster[0],
+      }),
+    /already registered on another device/,
+  );
+
+  // The same browser (it still remembers picking this name) gets it back.
   const reclaimed = await claimVoterIdentity({
     publicToken: bracket.publicToken,
     browserToken: "browser-b",
     rosterMemberName: roster[0],
+    rememberedRosterMemberId: bracket.rosterMembers[0].id,
   });
 
   assert.equal(reclaimed.rosterMemberId, bracket.rosterMembers[0].id);

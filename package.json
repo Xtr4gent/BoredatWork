@@ -9,7 +9,7 @@
     "start": "node dist/server.cjs",
     "lint": "eslint .",
     "migrate:postgres": "tsx scripts/migrate-workquiz-json-to-postgres.ts",
-    "test": "node --import tsx --test tests/**/*.test.ts"
+    "test": "node --import tsx --test --test-concurrency=1 tests/**/*.test.ts"
   },
   "dependencies": {
     "@types/pg": "^8.20.0",
