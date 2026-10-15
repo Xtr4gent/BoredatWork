@@ -20,12 +20,18 @@ import {
   PublicBracketSnapshotRosterStatus,
   RosterMemberRecord,
   RoundRecord,
+  VoterClientInfo,
 } from "@/lib/workquiz/types";
+import { browserIdForToken } from "@/lib/workquiz/client-info";
+import { buildVoteWatch, recordVoterEvent } from "@/lib/workquiz/vote-watch";
 import {
   bindBrowserToRosterMember,
+  browserTokenForRosterMember,
   findRosterMemberByName,
+  releaseRosterMemberBinding,
   rosterMemberIdForBrowser,
   tryMigrateVoterBinding,
+  wasReleasedFromBrowser,
 } from "@/lib/workquiz/voter";
 import {
   addHours,
@@ -756,10 +762,43 @@ export async function findBracketByAdminToken(adminToken: string) {
   return (await readStore()).brackets.find((bracket) => bracket.adminTokenHash === tokenHash) ?? null;
 }
 
+/**
+ * Re-binds a browser whose cookie drifted, using the roster id it remembered,
+ * and logs the move. Only the browser that originally picked the name holds
+ * that id (it is never in the public snapshot), so this is not a takeover path.
+ */
+function migrateVoterBindingWithAudit(
+  bracket: BracketRecord,
+  browserToken: string,
+  rememberedRosterMemberId: string | null,
+  client: VoterClientInfo | null,
+) {
+  const alreadyBound = rosterMemberIdForBrowser(bracket, browserToken);
+  if (alreadyBound) {
+    return alreadyBound;
+  }
+
+  const previousToken = rememberedRosterMemberId
+    ? browserTokenForRosterMember(bracket, rememberedRosterMemberId)
+    : null;
+  const migrated = tryMigrateVoterBinding(bracket, browserToken, rememberedRosterMemberId);
+  if (migrated) {
+    recordVoterEvent(bracket, {
+      type: "reclaim",
+      rosterMemberId: migrated,
+      client,
+      previousBrowserId: previousToken ? browserIdForToken(previousToken) : null,
+    });
+  }
+
+  return migrated;
+}
+
 export async function ensureVoterBinding(params: {
   publicToken: string;
   browserToken: string;
   rememberedRosterMemberId?: string | null;
+  client?: VoterClientInfo | null;
 }) {
   let resolvedRosterMemberId: string | null = null;
 
@@ -769,10 +808,11 @@ export async function ensureVoterBinding(params: {
       return store;
     }
 
-    resolvedRosterMemberId = tryMigrateVoterBinding(
+    resolvedRosterMemberId = migrateVoterBindingWithAudit(
       bracket,
       params.browserToken,
       params.rememberedRosterMemberId ?? null,
+      params.client ?? null,
     );
     return store;
   });
@@ -780,10 +820,18 @@ export async function ensureVoterBinding(params: {
   return resolvedRosterMemberId;
 }
 
+/**
+ * Binds a browser to a roster name. A name already registered on another
+ * browser is NOT handed over; the only exception is the browser that
+ * remembers having picked that name before (cookie drift). Everyone else is
+ * blocked and the attempt is logged for the admin Vote Watch panel.
+ */
 export async function claimVoterIdentity(params: {
   publicToken: string;
   browserToken: string;
   rosterMemberName: string;
+  rememberedRosterMemberId?: string | null;
+  client?: VoterClientInfo | null;
 }) {
   let resolvedRosterMemberId: string | null = null;
   let claimError: string | null = null;
@@ -806,12 +854,49 @@ export async function claimVoterIdentity(params: {
       return store;
     }
 
+    const client = params.client ?? null;
+    const currentForBrowser = rosterMemberIdForBrowser(bracket, params.browserToken);
+    if (currentForBrowser === member.id) {
+      resolvedRosterMemberId = member.id;
+      return store;
+    }
+
+    // A browser that remembers picking another name in this bracket counts as
+    // that person even if its main cookie was cleared.
+    const identityForBrowser =
+      currentForBrowser ??
+      bracket.rosterMembers.find((entry) => entry.id === params.rememberedRosterMemberId)?.id ??
+      null;
+    if (identityForBrowser && identityForBrowser !== member.id) {
+      const currentName =
+        bracket.rosterMembers.find((entry) => entry.id === identityForBrowser)?.name ?? "someone else";
+      recordVoterEvent(bracket, { type: "switch_blocked", rosterMemberId: member.id, client, note: currentName });
+      claimError = `This browser is already registered as ${currentName}.`;
+      return store;
+    }
+
+    const holderToken = browserTokenForRosterMember(bracket, member.id);
+    const isOwnDriftedName =
+      params.rememberedRosterMemberId === member.id &&
+      !wasReleasedFromBrowser(bracket, params.browserToken, member.id);
+    if (holderToken && !isOwnDriftedName) {
+      recordVoterEvent(bracket, { type: "claim_blocked", rosterMemberId: member.id, client });
+      claimError = `${member.name} is already registered on another device. If that's you, ask the organiser to free up your name.`;
+      return store;
+    }
+
     const result = bindBrowserToRosterMember(bracket, params.browserToken, member.id, { rebind: true });
     if (!result.ok) {
       claimError = result.error;
       return store;
     }
 
+    recordVoterEvent(bracket, {
+      type: holderToken ? "reclaim" : "claim",
+      rosterMemberId: member.id,
+      client,
+      ...(holderToken ? { previousBrowserId: browserIdForToken(holderToken) } : {}),
+    });
     resolvedRosterMemberId = member.id;
     return store;
   });
@@ -835,6 +920,7 @@ export async function castVote(params: {
   matchupSlot: number;
   side: "A" | "B";
   rememberedRosterMemberId?: string | null;
+  client?: VoterClientInfo | null;
 }) {
   let updatedBracketId: string | null = null;
 
@@ -848,10 +934,11 @@ export async function castVote(params: {
       throw new Error("This bracket is no longer available.");
     }
 
-    tryMigrateVoterBinding(
+    migrateVoterBindingWithAudit(
       bracket,
       params.browserToken,
       params.rememberedRosterMemberId ?? null,
+      params.client ?? null,
     );
 
     const rosterMemberId = rosterMemberIdForBrowser(bracket, params.browserToken);
@@ -887,6 +974,7 @@ export async function castVote(params: {
       rosterMemberId,
       entrantId,
       createdAt: new Date().toISOString(),
+      ...(params.client ? { client: params.client } : {}),
     });
     matchup.updatedAt = new Date().toISOString();
     updatedBracketId = bracket.id;
@@ -908,11 +996,44 @@ export function restartBracket(bracket: BracketRecord) {
   const baseStartsAt = bracket.rounds[0]?.startsAt ?? new Date().toISOString();
   bracket.status = "live";
   bracket.voterBindings = {};
+  bracket.releasedBrowserTokens = {};
+  recordVoterEvent(bracket, { type: "reset_all", rosterMemberId: null, client: null, note: "Bracket restarted" });
   bracket.rounds = buildRoundsForBracket(bracket, baseStartsAt, bracket.roundDurationHours);
 }
 
 export function clearVoterBindings(bracket: BracketRecord) {
   bracket.voterBindings = {};
+  bracket.releasedBrowserTokens = {};
+  recordVoterEvent(bracket, {
+    type: "reset_all",
+    rosterMemberId: null,
+    client: null,
+    note: "Admin reset all name registrations",
+  });
+}
+
+/** Frees one roster name so its owner can pick it again on a new device. */
+export function releaseVoterBinding(bracket: BracketRecord, rosterMemberId: string) {
+  if (!bracket.rosterMembers.some((member) => member.id === rosterMemberId)) {
+    throw new Error("Roster member not found.");
+  }
+
+  const previousToken = browserTokenForRosterMember(bracket, rosterMemberId);
+  if (!previousToken) {
+    return false;
+  }
+
+  releaseRosterMemberBinding(bracket, rosterMemberId);
+  bracket.releasedBrowserTokens ??= {};
+  bracket.releasedBrowserTokens[previousToken] = rosterMemberId;
+  recordVoterEvent(bracket, {
+    type: "release",
+    rosterMemberId,
+    client: null,
+    previousBrowserId: browserIdForToken(previousToken),
+    note: "Admin freed this name",
+  });
+  return true;
 }
 
 function normalizeAddedRosterName(value: string) {
@@ -1273,6 +1394,7 @@ export function buildSnapshot(
     selectedRosterMemberId: options?.rosterMemberId ?? null,
     currentRoundRosterStatuses,
     adminHistory: options?.includeAdminUrl ? options.adminHistory ?? [] : undefined,
+    voteWatch: options?.includeAdminUrl ? buildVoteWatch(bracket) : undefined,
   };
 }
 

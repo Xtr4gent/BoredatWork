@@ -7,6 +7,7 @@ import {
   castVote,
   findBracketByPublicToken,
 } from "@/lib/workquiz/bracket";
+import { getClientInfo } from "@/lib/workquiz/client-info";
 import { rosterMemberIdForBrowser } from "@/lib/workquiz/voter";
 
 export async function POST(
@@ -42,6 +43,7 @@ export async function POST(
       matchupSlot: body.matchupSlot,
       side: body.side,
       rememberedRosterMemberId,
+      client: getClientInfo(request, browserToken),
     });
 
     const rosterMemberId = rosterMemberIdForBrowser(updatedBracket, browserToken);

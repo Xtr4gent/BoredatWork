@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
-import { getOrCreateBrowserToken, setRememberedRosterMemberId } from "@/lib/workquiz/auth";
+import {
+  getOrCreateBrowserToken,
+  getRememberedRosterMemberId,
+  setRememberedRosterMemberId,
+} from "@/lib/workquiz/auth";
 import { buildPublicSnapshot, claimVoterIdentity, findBracketByPublicToken } from "@/lib/workquiz/bracket";
+import { getClientInfo } from "@/lib/workquiz/client-info";
 
 export async function POST(
   request: Request,
@@ -33,6 +38,8 @@ export async function POST(
       publicToken,
       browserToken,
       rosterMemberName,
+      rememberedRosterMemberId: await getRememberedRosterMemberId(),
+      client: getClientInfo(request, browserToken),
     });
 
     await setRememberedRosterMemberId(rosterMemberId);

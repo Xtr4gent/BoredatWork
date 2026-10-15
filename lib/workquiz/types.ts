@@ -23,11 +23,43 @@ export interface RosterMemberRecord {
   name: string;
 }
 
+/**
+ * Pseudonymous fingerprint of the browser behind a claim or vote. Every field
+ * is a short keyed hash (or a coarse "Chrome on Windows" label), so the store
+ * never holds raw IP addresses or user agents. Only equality matters.
+ */
+export interface VoterClientInfo {
+  browserId: string;
+  network: string | null;
+  device: string | null;
+  agent: string | null;
+}
+
+export type VoterEventType =
+  | "claim"
+  | "claim_blocked"
+  | "switch_blocked"
+  | "reclaim"
+  | "release"
+  | "reset_all";
+
+export interface VoterEventRecord {
+  id: string;
+  type: VoterEventType;
+  at: string;
+  rosterMemberId: string | null;
+  client: VoterClientInfo | null;
+  /** Browser that held the name before a reclaim or release. */
+  previousBrowserId?: string | null;
+  note?: string;
+}
+
 export interface VoteRecord {
   id: string;
   rosterMemberId: string;
   entrantId: string;
   createdAt: string;
+  client?: VoterClientInfo;
 }
 
 export interface MatchupRecord {
@@ -73,6 +105,10 @@ export interface BracketRecord {
   rosterMembers: RosterMemberRecord[];
   /** browserToken -> rosterMemberId; optional on legacy brackets until first bind */
   voterBindings?: Record<string, string>;
+  /** browserToken -> rosterMemberId an admin freed from that browser. */
+  releasedBrowserTokens?: Record<string, string>;
+  /** Capped audit log of name claims, blocked takeovers and resets. */
+  voterEvents?: VoterEventRecord[];
   rounds: RoundRecord[];
 }
 
@@ -185,6 +221,45 @@ export interface BracketSnapshot {
   selectedRosterMemberId?: string | null;
   currentRoundRosterStatuses: BracketSnapshotRosterStatus[];
   adminHistory?: AdminHistoryItem[];
+  voteWatch?: VoteWatchSnapshot;
+}
+
+export type VoteWatchSeverity = "high" | "medium" | "low";
+
+export interface VoteWatchFlag {
+  id: string;
+  severity: VoteWatchSeverity;
+  title: string;
+  detail: string;
+  rosterMemberNames: string[];
+}
+
+export interface VoteWatchMember {
+  rosterMemberId: string;
+  name: string;
+  registered: boolean;
+  browserLabel: string | null;
+  networkLabel: string | null;
+  agent: string | null;
+  votesCast: number;
+  browsersUsed: number;
+}
+
+export interface VoteWatchEvent {
+  id: string;
+  type: VoterEventType;
+  at: string;
+  rosterMemberName: string | null;
+  browserLabel: string | null;
+  networkLabel: string | null;
+  agent: string | null;
+  note?: string;
+}
+
+export interface VoteWatchSnapshot {
+  flags: VoteWatchFlag[];
+  members: VoteWatchMember[];
+  recentEvents: VoteWatchEvent[];
 }
 
 export interface PublicBracketSnapshotRosterMember {
