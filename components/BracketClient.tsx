@@ -722,7 +722,7 @@ export function BracketClient(props: BracketClientProps) {
 
     if (
       !window.confirm(
-        "End this round now? Voting closes with the votes cast so far. The next round opens at its scheduled time.",
+        "End this round now? Voting closes with the votes cast so far. The next round opens at its scheduled start: the next day's window for a daily tournament, or straight away if rounds run back to back.",
       )
     ) {
       return;
@@ -1649,7 +1649,8 @@ export function BracketClient(props: BracketClientProps) {
               <p className="bw-muted" suppressHydrationWarning>
                 {liveRound.label} closes on its own
                 {hydrated ? ` in ${formatCountdown(liveRound.endsAt, nowTick)}` : ""}. End it early to close voting now
-                with the votes cast so far; the next round opens at its scheduled time.
+                with the votes cast so far. The next round opens at its scheduled start: the next day&apos;s window for a
+                daily tournament, or straight away if rounds run back to back.
               </p>
               <div className="bw-btn-row">
                 <button className="bw-btn bw-btn-outline" onClick={advanceNow} type="button">
@@ -1788,15 +1789,21 @@ export function BracketClient(props: BracketClientProps) {
             </div>
             <div className="bw-stat-card">
               <div className="bw-stat-val gold" suppressHydrationWarning>
-                {adminCurrentRound && hydrated
-                  ? formatCountdown(
-                      adminCurrentRound.status === "upcoming" ? adminCurrentRound.startsAt : adminCurrentRound.endsAt,
-                      nowTick,
-                    )
-                  : "-"}
+                {adminCurrentRound?.status === "tiebreaker"
+                  ? "Tie"
+                  : adminCurrentRound && hydrated
+                    ? formatCountdown(
+                        adminCurrentRound.status === "upcoming" ? adminCurrentRound.startsAt : adminCurrentRound.endsAt,
+                        nowTick,
+                      )
+                    : "-"}
               </div>
               <div className="bw-stat-label">
-                {adminCurrentRound?.status === "upcoming" ? "Until voting opens" : "Until this round closes"}
+                {adminCurrentRound?.status === "tiebreaker"
+                  ? "Waiting for you to pick a winner"
+                  : adminCurrentRound?.status === "upcoming"
+                    ? "Until voting opens"
+                    : "Until this round closes"}
               </div>
             </div>
           </div>

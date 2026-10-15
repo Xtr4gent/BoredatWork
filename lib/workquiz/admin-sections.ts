@@ -21,18 +21,21 @@ export const ADMIN_SECTION_LABELS: Array<[AdminSection, string]> = [
   ["settings", "Settings"],
 ];
 
-/** Sections that were merged into Settings; old links still land there. */
-const LEGACY_SLUGS: Record<string, AdminSection> = {
-  rounds: "settings",
-  links: "settings",
-  danger: "settings",
-};
+/**
+ * Sections that were merged into Settings; old links still land there. A Map,
+ * so URL text such as "constructor" can't match an inherited object property.
+ */
+const LEGACY_SLUGS = new Map<string, AdminSection>([
+  ["rounds", "settings"],
+  ["links", "settings"],
+  ["danger", "settings"],
+]);
 
 export function adminSectionFromSlug(slug: string | undefined): AdminSection {
   const match = (Object.entries(ADMIN_SECTION_SLUGS) as Array<[AdminSection, string]>).find(
     ([, value]) => value === slug,
   );
-  return match ? match[0] : (slug && LEGACY_SLUGS[slug]) || "live";
+  return match ? match[0] : ((slug ? LEGACY_SLUGS.get(slug) : undefined) ?? "live");
 }
 
 export function adminWorkspacePath(bracketId: string, section: AdminSection = "live") {
