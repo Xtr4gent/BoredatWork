@@ -1355,7 +1355,8 @@ test("ensureVoterBinding lazily claims remembered roster members on legacy brack
   const migrated = await ensureVoterBinding({
     publicToken: bracket.publicToken,
     browserToken: "legacy-browser",
-    rememberedRosterMemberId: bracket.rosterMembers[1].id,
+    // Cookie written before claim ids existed: member id only.
+    remembered: bracket.rosterMembers[1].id,
   });
 
   assert.equal(migrated, bracket.rosterMembers[1].id);

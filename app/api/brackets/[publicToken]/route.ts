@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
-import { getOrCreateBrowserToken, getRememberedRosterMemberId } from "@/lib/workquiz/auth";
+import { getOrCreateBrowserToken, getRememberedClaim } from "@/lib/workquiz/auth";
 import {
   buildPublicSnapshot,
   ensureVoterBinding,
@@ -10,9 +10,10 @@ import {
 import { getClientInfo } from "@/lib/workquiz/client-info";
 import { jsonWithETag } from "@/lib/workquiz/etag";
 import {
+  isRememberedClaimCurrent,
+  parseRememberedClaim,
   rosterMemberIdForBrowser,
   voterBindingNeedsMigration,
-  wasReleasedFromBrowser,
 } from "@/lib/workquiz/voter";
 
 export async function GET(
@@ -35,27 +36,26 @@ export async function GET(
   }
 
   const browserToken = await getOrCreateBrowserToken();
-  const rememberedRosterMemberId = await getRememberedRosterMemberId();
+  const remembered = await getRememberedClaim();
   // Only take the locked read-modify-write path (and re-read the store) when
   // this browser's binding actually needs migrating. On a normal poll nothing
   // changes, so this stays a single read with no database write.
   let refreshedBracket = bracket;
-  if (voterBindingNeedsMigration(bracket, browserToken, rememberedRosterMemberId)) {
+  if (voterBindingNeedsMigration(bracket, browserToken, remembered)) {
     await ensureVoterBinding({
       publicToken,
       browserToken,
-      rememberedRosterMemberId,
+      remembered,
       client: getClientInfo(request, browserToken),
     });
     refreshedBracket = (await findBracketByPublicToken(publicToken)) ?? bracket;
   }
 
-  // An admin-freed browser no longer counts as that person, even for display.
-  const rememberedForDisplay =
-    rememberedRosterMemberId &&
-    !wasReleasedFromBrowser(refreshedBracket, browserToken, rememberedRosterMemberId)
-      ? rememberedRosterMemberId
-      : null;
+  // A stale claim (freed by the admin, or superseded by a newer device) no
+  // longer counts as that person, even for display.
+  const rememberedForDisplay = isRememberedClaimCurrent(refreshedBracket, remembered)
+    ? (parseRememberedClaim(remembered)?.rosterMemberId ?? null)
+    : null;
   const rosterMemberId = rosterMemberIdForBrowser(refreshedBracket, browserToken) ?? rememberedForDisplay;
 
   return jsonWithETag(

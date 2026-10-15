@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
-import {
-  getOrCreateBrowserToken,
-  getRememberedRosterMemberId,
-  setRememberedRosterMemberId,
-} from "@/lib/workquiz/auth";
+import { getOrCreateBrowserToken, getRememberedClaim, setRememberedClaim } from "@/lib/workquiz/auth";
 import { buildPublicSnapshot, claimVoterIdentity, findBracketByPublicToken } from "@/lib/workquiz/bracket";
 import { getClientInfo } from "@/lib/workquiz/client-info";
+import { formatRememberedClaim } from "@/lib/workquiz/voter";
 
 export async function POST(
   request: Request,
@@ -34,15 +31,15 @@ export async function POST(
   const browserToken = await getOrCreateBrowserToken();
 
   try {
-    const { bracket: updated, rosterMemberId } = await claimVoterIdentity({
+    const { bracket: updated, rosterMemberId, claimId } = await claimVoterIdentity({
       publicToken,
       browserToken,
       rosterMemberName,
-      rememberedRosterMemberId: await getRememberedRosterMemberId(),
+      remembered: await getRememberedClaim(),
       client: getClientInfo(request, browserToken),
     });
 
-    await setRememberedRosterMemberId(rosterMemberId);
+    await setRememberedClaim(formatRememberedClaim(rosterMemberId, claimId));
     return NextResponse.json(
       buildPublicSnapshot(updated, {
         rosterMemberId,

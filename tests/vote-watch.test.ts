@@ -11,10 +11,11 @@ import {
   ensureVoterBinding,
   releaseVoterBinding,
 } from "@/lib/workquiz/bracket";
-import { getClientInfo, summariseUserAgent } from "@/lib/workquiz/client-info";
+import { browserIdForToken, getClientInfo, summariseUserAgent } from "@/lib/workquiz/client-info";
 import { ensureStore, readStore, updateStore, writeStore } from "@/lib/workquiz/store";
 import type { BracketRecord, VoterClientInfo } from "@/lib/workquiz/types";
 import { MAX_VOTER_EVENTS, buildVoteWatch, recordVoterEvent } from "@/lib/workquiz/vote-watch";
+import { formatRememberedClaim } from "@/lib/workquiz/voter";
 
 const roster = ["Gabe", "Alex", "Jordan", "Sam"];
 
@@ -121,7 +122,7 @@ test("a browser that remembers one name cannot pick another after clearing its m
   const bracket = await newBracket();
   const alexId = bracket.rosterMembers[1].id;
 
-  await claimVoterIdentity({
+  const alex = await claimVoterIdentity({
     publicToken: bracket.publicToken,
     browserToken: "token-1",
     rosterMemberName: "Alex",
@@ -134,7 +135,7 @@ test("a browser that remembers one name cannot pick another after clearing its m
         publicToken: bracket.publicToken,
         browserToken: "token-2",
         rosterMemberName: "Jordan",
-        rememberedRosterMemberId: alexId,
+        remembered: formatRememberedClaim(alexId, alex.claimId),
         client: client({ browserId: "b-2" }),
       }),
     /already registered as Alex/,
@@ -181,7 +182,7 @@ test("one browser voting as two people is a high flag", async () => {
   const flag = watch.flags.find((entry) => entry.severity === "high");
   assert.ok(flag);
   assert.deepEqual(flag.rosterMemberNames, ["Jordan", "Sam"]);
-  assert.match(flag.title, /Browser 1 was used as 2 different people/);
+  assert.equal(flag.title, "Browser B-SH was used as 2 different people");
 });
 
 test("two browsers with the same device details on one network are a medium flag", async () => {
@@ -298,39 +299,125 @@ test("the event log is capped so the store row cannot grow without bound", () =>
   assert.equal(bracket.voterEvents?.[0].note, "n25");
 });
 
-test("a browser the admin freed a name from cannot grab it back, by polling or by picking it", async () => {
+async function claimThenRelease(name: string) {
   const bracket = await newBracket();
-  const alexId = bracket.rosterMembers[1].id;
-
-  await claimVoterIdentity({ publicToken: bracket.publicToken, browserToken: "old-laptop", rosterMemberName: "Alex" });
+  const member = bracket.rosterMembers.find((entry) => entry.name === name)!;
+  const old = await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "old-laptop",
+    rosterMemberName: name,
+  });
   await updateStore((store) => {
-    releaseVoterBinding(store.brackets.find((entry) => entry.publicToken === bracket.publicToken)!, alexId);
+    releaseVoterBinding(store.brackets.find((entry) => entry.publicToken === bracket.publicToken)!, member.id);
     return store;
   });
+  return { bracket, memberId: member.id, oldCookie: formatRememberedClaim(member.id, old.claimId) };
+}
 
-  // The old tab polls with its remembered-name cookie: no silent re-grab.
+test("a freed browser cannot grab the name back by polling", async () => {
+  const { bracket, oldCookie } = await claimThenRelease("Alex");
+
   const migrated = await ensureVoterBinding({
     publicToken: bracket.publicToken,
     browserToken: "old-laptop",
-    rememberedRosterMemberId: alexId,
+    remembered: oldCookie,
   });
   assert.equal(migrated, null);
+});
 
-  // Alex's new phone takes the name...
-  await claimVoterIdentity({ publicToken: bracket.publicToken, browserToken: "new-phone", rosterMemberName: "Alex" });
+// Greptile finding 1: before the new device registers, nobody holds the
+// name, so the old browser must be refused on its stale claim alone.
+test("a freed browser cannot re-pick the name before the new device registers", async () => {
+  const { bracket, memberId, oldCookie } = await claimThenRelease("Alex");
 
-  // ...and the old laptop cannot take it back by tapping the name either.
   await assert.rejects(
     () =>
       claimVoterIdentity({
         publicToken: bracket.publicToken,
         browserToken: "old-laptop",
         rosterMemberName: "Alex",
-        rememberedRosterMemberId: alexId,
+        remembered: oldCookie,
       }),
-    /already registered on another device/,
+    /freed from this browser/,
   );
 
+  // The freed name is still available for the new device.
+  const fresh = await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "new-phone",
+    rosterMemberName: "Alex",
+  });
+  assert.equal(fresh.rosterMemberId, memberId);
+});
+
+// Greptile finding 2: clearing the main cookie gives the old browser a fresh
+// token; its stale remembered claim must still not migrate the name.
+test("a freed browser that clears its main cookie still cannot take the name from the new device", async () => {
+  const { bracket, memberId, oldCookie } = await claimThenRelease("Alex");
+
+  await claimVoterIdentity({ publicToken: bracket.publicToken, browserToken: "new-phone", rosterMemberName: "Alex" });
+
+  for (const freshToken of ["old-laptop", "old-laptop-new-token"]) {
+    const migrated = await ensureVoterBinding({
+      publicToken: bracket.publicToken,
+      browserToken: freshToken,
+      remembered: oldCookie,
+    });
+    assert.equal(migrated, null);
+    await assert.rejects(
+      () =>
+        claimVoterIdentity({
+          publicToken: bracket.publicToken,
+          browserToken: freshToken,
+          rosterMemberName: "Alex",
+          remembered: oldCookie,
+        }),
+      /already registered on another device/,
+    );
+  }
+
   const stored = await storedBracket(bracket.publicToken);
-  assert.equal(stored.voterBindings?.["new-phone"], alexId);
+  assert.equal(stored.voterBindings?.["new-phone"], memberId);
+  assert.equal(Object.values(stored.voterBindings ?? {}).filter((id) => id === memberId).length, 1);
+});
+
+test("the current device still recovers its own name after its main cookie drifts", async () => {
+  const bracket = await newBracket();
+  const claim = await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "phone-token-1",
+    rosterMemberName: "Sam",
+  });
+
+  const migrated = await ensureVoterBinding({
+    publicToken: bracket.publicToken,
+    browserToken: "phone-token-2",
+    remembered: formatRememberedClaim(claim.rosterMemberId, claim.claimId),
+  });
+  assert.equal(migrated, claim.rosterMemberId);
+});
+
+// Greptile finding 3.
+test("Vote Watch labels come from the stored ids, not the order events appear in", async () => {
+  const bracket = await newBracket();
+  await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "a",
+    rosterMemberName: "Gabe",
+    client: client({ browserId: "aaaa1111" }),
+  });
+  await claimVoterIdentity({
+    publicToken: bracket.publicToken,
+    browserToken: "b",
+    rosterMemberName: "Sam",
+    client: client({ browserId: "bbbb2222" }),
+  });
+
+  const stored = await storedBracket(bracket.publicToken);
+  const before = buildVoteWatch(stored).members.find((member) => member.name === "Sam")?.browserLabel;
+  stored.voterEvents = stored.voterEvents?.slice(1); // the capped log dropped Gabe's claim
+  const after = buildVoteWatch(stored).members.find((member) => member.name === "Sam")?.browserLabel;
+
+  assert.equal(before, `Browser ${browserIdForToken("b").slice(0, 4).toUpperCase()}`);
+  assert.equal(after, before);
 });

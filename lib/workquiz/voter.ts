@@ -9,12 +9,64 @@ export function ensureVoterBindings(bracket: BracketRecord) {
 }
 
 /**
- * True when an admin freed this name from this exact browser. Such a browser
- * still remembers the name, but must not grab it back on its next poll, or a
- * person moving to a new device would lose the name to their old open tab.
+ * The remembered-name cookie holds "rosterMemberId~claimId". The claim id is
+ * a secret minted on every successful pick and stored in
+ * bracket.memberClaims, so only the browser that made the CURRENT
+ * registration can recover the name after its main cookie drifts. An admin
+ * release replaces the stored id, which kills every older cookie no matter
+ * which browser token it now travels with. Cookies written before claim ids
+ * existed carry only the member id and keep working until the name is next
+ * picked or released.
  */
-export function wasReleasedFromBrowser(bracket: BracketRecord, browserToken: string, rosterMemberId: string) {
-  return bracket.releasedBrowserTokens?.[browserToken] === rosterMemberId;
+const REMEMBERED_SEPARATOR = "~";
+
+export interface RememberedClaim {
+  rosterMemberId: string;
+  claimId: string | null;
+}
+
+export function parseRememberedClaim(raw: string | null | undefined): RememberedClaim | null {
+  const value = raw?.trim();
+  if (!value) {
+    return null;
+  }
+
+  const separator = value.indexOf(REMEMBERED_SEPARATOR);
+  if (separator === -1) {
+    return { rosterMemberId: value, claimId: null };
+  }
+
+  const rosterMemberId = value.slice(0, separator);
+  const claimId = value.slice(separator + 1);
+  return rosterMemberId ? { rosterMemberId, claimId: claimId || null } : null;
+}
+
+export function formatRememberedClaim(rosterMemberId: string, claimId: string) {
+  return `${rosterMemberId}${REMEMBERED_SEPARATOR}${claimId}`;
+}
+
+/** Remembered member id when it is on this bracket's roster, whatever its claim state. */
+export function rememberedRosterMemberId(bracket: BracketRecord, raw: string | null | undefined) {
+  const remembered = parseRememberedClaim(raw);
+  return remembered && bracket.rosterMembers.some((member) => member.id === remembered.rosterMemberId)
+    ? remembered.rosterMemberId
+    : null;
+}
+
+/** True when this cookie belongs to the name's current registration. */
+export function isRememberedClaimCurrent(bracket: BracketRecord, raw: string | null | undefined) {
+  const remembered = parseRememberedClaim(raw);
+  if (!remembered || !rememberedRosterMemberId(bracket, raw)) {
+    return false;
+  }
+
+  const current = bracket.memberClaims?.[remembered.rosterMemberId];
+  if (current === undefined) {
+    // Registered before claim ids existed: trust the member id, as before.
+    return true;
+  }
+
+  return remembered.claimId !== null && remembered.claimId === current;
 }
 
 export function rosterMemberIdForBrowser(bracket: BracketRecord, browserToken: string) {
@@ -88,39 +140,32 @@ export function bindBrowserToRosterMember(
 export function voterBindingNeedsMigration(
   bracket: BracketRecord,
   browserToken: string,
-  rememberedRosterMemberId: string | null,
+  remembered: string | null,
 ) {
   if (rosterMemberIdForBrowser(bracket, browserToken)) {
     return false;
   }
 
-  return Boolean(
-    rememberedRosterMemberId &&
-      bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId) &&
-      !wasReleasedFromBrowser(bracket, browserToken, rememberedRosterMemberId),
-  );
+  return isRememberedClaimCurrent(bracket, remembered);
 }
 
 export function tryMigrateVoterBinding(
   bracket: BracketRecord,
   browserToken: string,
-  rememberedRosterMemberId: string | null,
+  remembered: string | null,
 ) {
   const existing = rosterMemberIdForBrowser(bracket, browserToken);
   if (existing) {
     return existing;
   }
 
-  if (
-    !rememberedRosterMemberId ||
-    !bracket.rosterMembers.some((member) => member.id === rememberedRosterMemberId) ||
-    wasReleasedFromBrowser(bracket, browserToken, rememberedRosterMemberId)
-  ) {
+  if (!isRememberedClaimCurrent(bracket, remembered)) {
     return null;
   }
 
-  const result = bindBrowserToRosterMember(bracket, browserToken, rememberedRosterMemberId, {
+  const rosterMemberId = parseRememberedClaim(remembered)!.rosterMemberId;
+  const result = bindBrowserToRosterMember(bracket, browserToken, rosterMemberId, {
     rebind: true,
   });
-  return result.ok ? rememberedRosterMemberId : null;
+  return result.ok ? rosterMemberId : null;
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
-import { getOrCreateBrowserToken, getRememberedRosterMemberId } from "@/lib/workquiz/auth";
+import { getOrCreateBrowserToken, getRememberedClaim } from "@/lib/workquiz/auth";
 import {
   buildPublicSnapshot,
   castVote,
@@ -34,7 +34,7 @@ export async function POST(
   }
 
   const browserToken = await getOrCreateBrowserToken();
-  const rememberedRosterMemberId = await getRememberedRosterMemberId();
+  const remembered = await getRememberedClaim();
 
   try {
     const updatedBracket = await castVote({
@@ -42,7 +42,7 @@ export async function POST(
       browserToken,
       matchupSlot: body.matchupSlot,
       side: body.side,
-      rememberedRosterMemberId,
+      remembered,
       client: getClientInfo(request, browserToken),
     });
 
