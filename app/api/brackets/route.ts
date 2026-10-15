@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { adminWorkspacePath } from "@/lib/workquiz/admin-sections";
 import { createBracket } from "@/lib/workquiz/bracket";
 import { DEFAULT_ROUND_DURATION_HOURS } from "@/lib/workquiz/constants";
 import type { BracketKind, EntrantInput } from "@/lib/workquiz/types";
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { adminToken } = await createBracket({
+  const { bracket, adminToken } = await createBracket({
     title: body.title.trim(),
     kind: body.kind === "test" ? "test" : "public",
     entrants,
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     publicUrl: "/voting",
-    adminUrl: `/admin?adminToken=${encodeURIComponent(adminToken)}`,
+    adminUrl: adminWorkspacePath(bracket.id),
     testUrl: `/test?adminToken=${encodeURIComponent(adminToken)}`,
   });
 }

@@ -1,15 +1,10 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
-import { BracketClient } from "@/components/BracketClient";
-import { CreateBracketForm } from "@/components/CreateBracketForm";
-import {
-  buildAdminSnapshot,
-  findBracketByAdminToken,
-  findBracketById,
-  listBracketHistory,
-} from "@/lib/workquiz/bracket";
-import type { AdminHistoryItem } from "@/lib/workquiz/types";
+import { AdminTopNav } from "@/components/AdminTopNav";
+import { ADMIN_STATUS_TAG, adminWorkspacePath } from "@/lib/workquiz/admin-sections";
+import { findBracketByAdminToken, listAdminTournaments } from "@/lib/workquiz/bracket";
+import type { AdminTournamentSummary } from "@/lib/workquiz/types";
 
 export const dynamic = "force-dynamic";
 
@@ -20,157 +15,105 @@ const adminDateFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
 });
 
-function formatAdminDate(value: string) {
-  return adminDateFormatter.format(new Date(value));
-}
-
-function AdminCreatePortal({
-  adminHistory,
-  initialTemplate,
-  section,
-}: {
-  adminHistory: AdminHistoryItem[];
-  initialTemplate?: {
-    title: string;
-    entrants: Array<{ name: string; imageUrl?: string }>;
-    rosterMembers: string[];
-    seedingMode: "manual" | "random";
-    sourceTitle?: string;
-  } | null;
-  section: "create" | "history";
-}) {
-  const showingHistory = section === "history";
+function TournamentRow({ tournament }: { tournament: AdminTournamentSummary }) {
+  const tag = ADMIN_STATUS_TAG[tournament.status];
+  const details = [
+    tournament.currentRoundLabel,
+    tournament.championName ? `Champion: ${tournament.championName}` : null,
+    `${tournament.playerCount} players`,
+    `${tournament.entrantCount} contenders`,
+    tournament.startsAt ? `Starts ${adminDateFormatter.format(new Date(tournament.startsAt))}` : null,
+  ].filter(Boolean);
 
   return (
-    <main className="bw-admin-app">
-      <nav className="bw-admin-nav" aria-label="Admin">
-        <div className="bw-nav-logo">
-          Bored<span>@Work</span>
+    <div className="bw-tournament-row">
+      <div>
+        <div className="bw-tag-row">
+          <span className={tag.className}>{tag.label}</span>
+          {tournament.isOnVoting && tournament.status !== "on-voting" ? (
+            <span className="bw-tag bw-tag-lime">Shown on /voting</span>
+          ) : null}
         </div>
-        <span className="bw-nav-badge">Admin</span>
-        <div className="bw-nav-tabs">
-          <Link className="bw-nav-tab" href="/admin">
-            Live
-          </Link>
-          <Link className={`bw-nav-tab ${!showingHistory ? "active" : ""}`} href="/admin">
-            + New Tournament
-          </Link>
-          <Link className={`bw-nav-tab ${showingHistory ? "active" : ""}`} href="/admin?section=history">
-            History
-          </Link>
-        </div>
-      </nav>
-
-      <div className="bw-admin-main">
-        <aside className="bw-sidebar">
-          <div className="bw-sidebar-label">Live Tournament</div>
-          <Link className="bw-sidebar-link" href="/admin">
-            <span>Overview</span>
-          </Link>
-          <Link className="bw-sidebar-link" href="/admin">
-            <span>Who&apos;s Voted</span>
-          </Link>
-          <Link className="bw-sidebar-link" href="/admin">
-            <span>Live Results</span>
-          </Link>
-          <Link className="bw-sidebar-link" href="/admin">
-            <span>Advance Round</span>
-          </Link>
-
-          <div className="bw-sidebar-label">Setup</div>
-          <Link className={`bw-sidebar-link ${!showingHistory ? "active" : ""}`} href="/admin">
-            New Tournament
-          </Link>
-          <Link className={`bw-sidebar-link ${showingHistory ? "active" : ""}`} href="/admin?section=history">
-            Past Tournaments
-          </Link>
-        </aside>
-
-        <section className="bw-admin-content">
-          {showingHistory ? (
-            <div className="bw-section-panel active">
-              <div className="bw-panel-title">Past Tournaments</div>
-              <p className="bw-panel-sub">Every debate that has been settled.</p>
-              {adminHistory.length ? (
-                adminHistory.map((item, index) => (
-                  <div className="bw-history-item" key={item.id}>
-                    <div>
-                      <div className="bw-history-num">Tournament #{adminHistory.length - index}</div>
-                      <div className="bw-history-topic">{item.title}</div>
-                      <div className="bw-history-winner">Champion: {item.winnerName}</div>
-                    </div>
-                    <div className="bw-history-meta">
-                      <div>{formatAdminDate(item.tournamentDate)}</div>
-                      <Link href={`/past/${encodeURIComponent(item.id)}`}>View bracket</Link>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="bw-card">
-                  <div className="bw-card-title">No completed tournaments yet</div>
-                  <p className="bw-muted">Previous winners will show up here once you finish a bracket.</p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="bw-section-panel active">
-              <div className="bw-panel-title">New Tournament</div>
-              <p className="bw-panel-sub">Set up a fresh bracket. Once created, share the player link.</p>
-              <CreateBracketForm variant="admin" initialTemplate={initialTemplate} />
-            </div>
-          )}
-        </section>
+        <div className="bw-history-topic">{tournament.title}</div>
+        <p className="bw-muted">{details.join(" · ")}</p>
       </div>
-    </main>
+      <div className="bw-btn-row">
+        <Link className="bw-btn bw-btn-lime" href={adminWorkspacePath(tournament.id)}>
+          Manage
+        </Link>
+        {tournament.status === "finished" ? (
+          <Link className="bw-btn bw-btn-outline" href={`/past/${encodeURIComponent(tournament.id)}`}>
+            Results
+          </Link>
+        ) : null}
+        {tournament.kind === "public" ? (
+          <Link className="bw-btn bw-btn-outline" href={`/admin/new?template=${encodeURIComponent(tournament.id)}`}>
+            Reuse
+          </Link>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
 export default async function AdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ adminToken?: string; template?: string; section?: string }>;
+  searchParams: Promise<{ adminToken?: string; template?: string }>;
 }) {
   const params = await searchParams;
-  const jar = await cookies();
-  const rememberedAdminToken = jar.get("workquiz_admin_token")?.value;
-  const effectiveAdminToken = params.adminToken ?? rememberedAdminToken;
-  const authorizedAdmin = effectiveAdminToken ? await findBracketByAdminToken(effectiveAdminToken) : null;
-  const templateBracket =
-    authorizedAdmin && params.template ? await findBracketById(params.template) : null;
 
-  if (effectiveAdminToken && authorizedAdmin && !params.template) {
-    const snapshot = await buildAdminSnapshot(authorizedAdmin, effectiveAdminToken);
-
-    return (
-      <BracketClient
-        adminToken={effectiveAdminToken}
-        initialSnapshot={snapshot}
-        mode="admin"
-        token={authorizedAdmin.publicToken}
-      />
-    );
+  // Links from before the overhaul: /admin?adminToken=... and ?template=...
+  if (params.template) {
+    redirect(`/admin/new?template=${encodeURIComponent(params.template)}`);
+  }
+  if (params.adminToken) {
+    const bracket = await findBracketByAdminToken(params.adminToken);
+    if (bracket) {
+      redirect(adminWorkspacePath(bracket.id));
+    }
   }
 
+  const tournaments = await listAdminTournaments();
+  const active = tournaments.filter((entry) => ["on-voting", "running", "test"].includes(entry.status));
+  const past = tournaments.filter((entry) => ["finished", "shut-down"].includes(entry.status));
+
   return (
-    <AdminCreatePortal
-      adminHistory={await listBracketHistory()}
-      initialTemplate={
-        templateBracket
-          ? {
-              title: templateBracket.title,
-              entrants: templateBracket.entrants.map((entrant) => ({
-                name: entrant.name,
-                imageUrl: entrant.imageUrl,
-              })),
-              rosterMembers:
-                templateBracket.rosterMembers?.map((member) => member.name) ??
-                Array.from({ length: templateBracket.totalPlayers }, (_, index) => `Player ${index + 1}`),
-              seedingMode: templateBracket.seedingMode,
-              sourceTitle: templateBracket.title,
-            }
-          : null
-      }
-      section={params.section === "history" ? "history" : "create"}
-    />
+    <main className="bw-admin-app">
+      <AdminTopNav active="tournaments" />
+      <div className="bw-admin-main">
+        <section className="bw-admin-content">
+          <div className="bw-section-panel active">
+            <div className="bw-card-header-row">
+              <div>
+                <div className="bw-panel-title">Tournaments</div>
+                <p className="bw-panel-sub">Every tournament you have created. Open one to manage it.</p>
+              </div>
+              <Link className="bw-btn bw-btn-lime" href="/admin/new">
+                + New tournament
+              </Link>
+            </div>
+
+            <div className="bw-card-title bw-tournament-group">Active</div>
+            {active.length ? (
+              active.map((tournament) => <TournamentRow key={tournament.id} tournament={tournament} />)
+            ) : (
+              <div className="bw-card">
+                <p className="bw-muted">Nothing running right now. Start a new tournament to get going.</p>
+              </div>
+            )}
+
+            <div className="bw-card-title bw-tournament-group">Finished and shut down</div>
+            {past.length ? (
+              past.map((tournament) => <TournamentRow key={tournament.id} tournament={tournament} />)
+            ) : (
+              <div className="bw-card">
+                <p className="bw-muted">Finished tournaments show up here with their champion.</p>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </main>
   );
 }

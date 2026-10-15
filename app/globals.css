@@ -3088,3 +3088,66 @@ button {
     text-align: left;
   }
 }
+
+/* Admin: Tournaments list and workspace sidebar header */
+.bw-tournament-group {
+  margin: 28px 0 12px;
+}
+
+.bw-tournament-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--bw-border);
+  border-radius: 14px;
+  background: var(--bw-card);
+  margin-bottom: 10px;
+  padding: 18px 20px;
+}
+
+.bw-tournament-row .bw-tag-row {
+  margin-bottom: 8px;
+}
+
+.bw-tournament-row .bw-muted {
+  margin: 0;
+}
+
+.bw-admin-nav form {
+  display: inline-flex;
+}
+
+.bw-sidebar-back {
+  display: block;
+  padding: 8px 12px;
+  color: var(--bw-muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.bw-sidebar-back:hover {
+  color: var(--bw-white);
+}
+
+.bw-sidebar-tournament {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  margin: 4px 0 12px;
+  padding: 8px 12px 14px;
+  border-bottom: 1px solid var(--bw-border);
+}
+
+.bw-sidebar-tournament-title {
+  font-family: var(--font-display), sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+@media (max-width: 760px) {
+  .bw-tournament-row {
+    grid-template-columns: 1fr;
+  }
+}

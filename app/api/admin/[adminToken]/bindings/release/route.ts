@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { buildAdminSnapshot, releaseVoterBinding } from "@/lib/workquiz/bracket";
+import { buildAdminSnapshot, matchesAdminKey, releaseVoterBinding } from "@/lib/workquiz/bracket";
 import { publish } from "@/lib/workquiz/realtime";
 import { updateStore } from "@/lib/workquiz/store";
-import { hashValue } from "@/lib/workquiz/utils";
 
 export async function POST(
   request: Request,
@@ -21,7 +20,7 @@ export async function POST(
 
   try {
     const updatedStore = await updateStore((store) => {
-      const mutable = store.brackets.find((entry) => entry.adminTokenHash === hashValue(adminToken));
+      const mutable = store.brackets.find((entry) => matchesAdminKey(entry, adminToken));
 
       if (!mutable) {
         throw new Error("Bracket not found.");
