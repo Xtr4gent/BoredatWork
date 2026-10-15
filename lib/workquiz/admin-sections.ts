@@ -2,23 +2,40 @@
  * Admin workspace sections and their URL slugs (/admin/t/<id>/<slug>).
  * Kept outside the "use client" component so server pages can read it.
  */
-export type AdminSection = "live" | "roster" | "watch" | "results" | "advance" | "links" | "danger";
+export type AdminSection = "live" | "roster" | "watch" | "results" | "settings";
 
 export const ADMIN_SECTION_SLUGS: Record<AdminSection, string> = {
   live: "overview",
   roster: "players",
   watch: "vote-watch",
   results: "results",
-  advance: "rounds",
-  links: "links",
-  danger: "danger",
+  settings: "settings",
 };
+
+/** Sidebar order and labels. */
+export const ADMIN_SECTION_LABELS: Array<[AdminSection, string]> = [
+  ["live", "Overview"],
+  ["roster", "Players"],
+  ["watch", "Vote Watch"],
+  ["results", "Results"],
+  ["settings", "Settings"],
+];
+
+/**
+ * Sections that were merged into Settings; old links still land there. A Map,
+ * so URL text such as "constructor" can't match an inherited object property.
+ */
+const LEGACY_SLUGS = new Map<string, AdminSection>([
+  ["rounds", "settings"],
+  ["links", "settings"],
+  ["danger", "settings"],
+]);
 
 export function adminSectionFromSlug(slug: string | undefined): AdminSection {
   const match = (Object.entries(ADMIN_SECTION_SLUGS) as Array<[AdminSection, string]>).find(
     ([, value]) => value === slug,
   );
-  return match ? match[0] : "live";
+  return match ? match[0] : ((slug ? LEGACY_SLUGS.get(slug) : undefined) ?? "live");
 }
 
 export function adminWorkspacePath(bracketId: string, section: AdminSection = "live") {
