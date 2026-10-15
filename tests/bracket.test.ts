@@ -333,24 +333,40 @@ test("advanceBracket heals a stale tiebreaker round after winners are set", asyn
 
 test("advanceBracket promotes newly populated pending matchups in a live round", async () => {
   await resetStore();
+  // Fixed clock: the outcome must not depend on when the suite runs.
+  const startsAt = "2026-01-05T15:00:00.000Z";
   const { bracket } = await createBracket({
     title: "Live Matchup Activation",
     seedingMode: "manual",
     entrants: ["A", "B", "C", "D", "E", "F", "G", "H"],
     rosterMembers: roster,
-    startsAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    startsAt,
     totalPlayers: roster.length,
     roundDurationHours: 1,
   });
 
+  // Round one is decided. (Until it is, advanceBracket correctly holds round
+  // two back; the original version of this test skipped this step, so it
+  // could never pass.)
+  const roundOne = bracket.rounds[0];
+  for (const matchup of roundOne.matchups) {
+    matchup.status = "closed";
+    matchup.winnerEntrantId = matchup.entrantAId;
+  }
+  roundOne.status = "closed";
+
+  // Round two is live, and one of its matchups has only just been filled in.
   const roundTwo = bracket.rounds[1];
   roundTwo.status = "live";
   roundTwo.matchups[0].status = "pending";
   roundTwo.matchups[0].entrantAId = bracket.entrants[0].id;
   roundTwo.matchups[0].entrantBId = bracket.entrants[1].id;
+  roundTwo.matchups[0].winnerEntrantId = null;
 
-  advanceBracket(bracket, new Date());
+  const duringRoundTwo = new Date(new Date(roundTwo.startsAt).getTime() + 5 * 60 * 1000);
+  advanceBracket(bracket, duringRoundTwo);
 
+  assert.equal(roundTwo.status, "live");
   assert.equal(roundTwo.matchups[0].status, "live");
 });
 
