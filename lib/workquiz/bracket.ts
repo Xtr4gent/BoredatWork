@@ -10,6 +10,8 @@ import { readStore, updateStore } from "@/lib/workquiz/store";
 import {
   AdminVoteEntry,
   AdminHistoryItem,
+  AdminTournamentStatus,
+  AdminTournamentSummary,
   BracketRecord,
   BracketSnapshot,
   BracketSnapshotRosterStatus,
@@ -23,6 +25,7 @@ import {
   StoreShape,
   VoterClientInfo,
 } from "@/lib/workquiz/types";
+import { adminTournamentStatus, adminWorkspacePath } from "@/lib/workquiz/admin-sections";
 import { browserIdForToken } from "@/lib/workquiz/client-info";
 import { buildVoteWatch, recordVoterEvent } from "@/lib/workquiz/vote-watch";
 import {
@@ -105,6 +108,59 @@ function winnerNameForBracket(bracket: BracketRecord) {
 
 function bracketKind(bracket: BracketRecord) {
   return bracket.kind ?? "public";
+}
+
+/**
+ * Admin pages and APIs address a tournament by its id. Older links carry the
+ * per-tournament secret admin token instead, and keep working. Every caller
+ * sits behind the admin login (proxy.ts), so the id is not a secret.
+ */
+export function matchesAdminKey(bracket: BracketRecord, key: string) {
+  return bracket.id === key || bracket.adminTokenHash === hashValue(key);
+}
+
+const ADMIN_STATUS_ORDER: Record<AdminTournamentStatus, number> = {
+  "on-voting": 0,
+  running: 1,
+  test: 2,
+  finished: 3,
+  "shut-down": 4,
+};
+
+/** Every tournament, for the admin Tournaments list: active first, newest first. */
+export async function listAdminTournaments(): Promise<AdminTournamentSummary[]> {
+  const brackets = (await readStore()).brackets;
+  const now = new Date();
+
+  return brackets
+    .map((stored) => {
+      const bracket = structuredClone(stored);
+      advanceBracket(bracket, now);
+      const currentRound =
+        bracket.rounds.find((round) => round.status === "live" || round.status === "tiebreaker") ??
+        bracket.rounds.find((round) => round.status === "upcoming") ??
+        null;
+
+      return {
+        id: bracket.id,
+        title: bracket.title,
+        kind: bracketKind(bracket),
+        status: adminTournamentStatus(bracket),
+        isOnVoting: Boolean(bracket.isCurrentPublic) && bracket.status !== "disabled",
+        createdAt: bracket.createdAt,
+        startsAt: bracket.rounds[0]?.startsAt ?? null,
+        currentRoundLabel: bracket.status === "live" ? (currentRound?.label ?? null) : null,
+        roundCount: bracket.rounds.length,
+        entrantCount: bracket.entrants.length,
+        playerCount: bracket.rosterMembers.length,
+        championName: winnerNameForBracket(bracket),
+      };
+    })
+    .sort(
+      (left, right) =>
+        ADMIN_STATUS_ORDER[left.status] - ADMIN_STATUS_ORDER[right.status] ||
+        right.createdAt.localeCompare(left.createdAt),
+    );
 }
 
 async function buildAdminHistory(brackets?: BracketRecord[]): Promise<AdminHistoryItem[]> {
@@ -806,8 +862,7 @@ export async function findCurrentPublicBracket() {
 }
 
 export async function findBracketByAdminToken(adminToken: string) {
-  const tokenHash = hashValue(adminToken);
-  return (await readStore()).brackets.find((bracket) => bracket.adminTokenHash === tokenHash) ?? null;
+  return (await readStore()).brackets.find((bracket) => matchesAdminKey(bracket, adminToken)) ?? null;
 }
 
 /**
@@ -1220,7 +1275,7 @@ export async function addRosterMembers(params: { adminToken: string; names: stri
   let updatedBracketId: string | null = null;
 
   const updatedStore = await updateStore((store) => {
-    const bracket = store.brackets.find((entry) => entry.adminTokenHash === hashValue(params.adminToken));
+    const bracket = store.brackets.find((entry) => matchesAdminKey(entry, params.adminToken));
     if (!bracket) {
       throw new Error("Bracket not found.");
     }
@@ -1284,8 +1339,7 @@ export async function markBracketAsCurrentPublic(adminToken: string) {
   let updatedBracketId: string | null = null;
 
   const updatedStore = await updateStore((store) => {
-    const targetHash = hashValue(adminToken);
-    const target = store.brackets.find((entry) => entry.adminTokenHash === targetHash);
+    const target = store.brackets.find((entry) => matchesAdminKey(entry, adminToken));
     if (!target) {
       throw new Error("Bracket not found.");
     }
@@ -1324,7 +1378,7 @@ export async function clearMatchupVote(params: {
   let updatedBracketId: string | null = null;
 
   const updatedStore = await updateStore((store) => {
-    const bracket = store.brackets.find((entry) => entry.adminTokenHash === hashValue(params.adminToken));
+    const bracket = store.brackets.find((entry) => matchesAdminKey(entry, params.adminToken));
     if (!bracket) {
       throw new Error("Bracket not found.");
     }
@@ -1378,7 +1432,7 @@ export async function resolveTieBreaker(params: {
   let updatedBracketId: string | null = null;
 
   const updatedStore = await updateStore((store) => {
-    const bracket = store.brackets.find((entry) => entry.adminTokenHash === hashValue(params.adminToken));
+    const bracket = store.brackets.find((entry) => matchesAdminKey(entry, params.adminToken));
     if (!bracket) {
       throw new Error("Bracket not found.");
     }
@@ -1555,9 +1609,7 @@ export function buildSnapshot(
         ? `/test?adminToken=${encodeURIComponent(options.adminToken)}`
         : "/voting",
     adminUrl:
-      options?.includeAdminUrl && options.adminToken
-        ? `/admin?adminToken=${encodeURIComponent(options.adminToken)}`
-        : undefined,
+      options?.includeAdminUrl ? adminWorkspacePath(bracket.id) : undefined,
     seedingMode: bracket.seedingMode,
     createdAt: bracket.createdAt,
     publishedAt: bracket.publishedAt,

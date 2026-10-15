@@ -14,18 +14,15 @@ import {
   VoteWatchSeverity,
   VoterEventType,
 } from "@/lib/workquiz/types";
-import { CreateBracketForm } from "@/components/CreateBracketForm";
+import { AdminTopNav } from "@/components/AdminTopNav";
+import {
+  ADMIN_STATUS_TAG,
+  adminSectionFromSlug,
+  adminTournamentStatus,
+  adminWorkspacePath,
+  type AdminSection,
+} from "@/lib/workquiz/admin-sections";
 
-type AdminSection =
-  | "live"
-  | "roster"
-  | "watch"
-  | "results"
-  | "advance"
-  | "create"
-  | "links"
-  | "history"
-  | "danger";
 
 // Must match DEVICE_HINT_HEADER in lib/workquiz/client-info.ts (server-only module).
 const DEVICE_HINT_HEADER = "x-workquiz-device";
@@ -226,6 +223,7 @@ type BracketClientProps =
       mode: "admin";
       token: string;
       adminToken?: string;
+      initialAdminSection?: AdminSection;
       initialSnapshot: BracketSnapshot;
     }
   | {
@@ -259,7 +257,34 @@ export function BracketClient(props: BracketClientProps) {
       ),
   );
   const [pendingVotes, setPendingVotes] = useState<Record<number, "A" | "B">>({});
-  const [adminSection, setAdminSection] = useState<AdminSection>("live");
+  const [adminSection, setAdminSection] = useState<AdminSection>(
+    props.mode === "admin" ? (props.initialAdminSection ?? "live") : "live",
+  );
+
+  // Keep the open section in the address bar (/admin/t/<id>/<section>), so a
+  // reload or a shared link lands on the same page and Back goes to the last
+  // section.
+  useEffect(() => {
+    if (mode !== "admin") {
+      return;
+    }
+    const target = adminWorkspacePath(initialSnapshot.id, adminSection);
+    if (window.location.pathname !== target) {
+      window.history.pushState(null, "", target);
+    }
+  }, [adminSection, initialSnapshot.id, mode]);
+
+  useEffect(() => {
+    if (mode !== "admin") {
+      return;
+    }
+    const onPopState = () => {
+      const slug = window.location.pathname.split("/").filter(Boolean)[3];
+      setAdminSection(adminSectionFromSlug(slug));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [mode]);
   const isFirstAdminSectionRender = useRef(true);
   useEffect(() => {
     if (isFirstAdminSectionRender.current) {
@@ -514,14 +539,6 @@ export function BracketClient(props: BracketClientProps) {
     return hydrated ? new URL(href, window.location.origin).toString() : href;
   }, [adminToken, hydrated]);
 
-  const reuseTemplateBase = useMemo(() => {
-    if (!adminToken) {
-      return null;
-    }
-
-    return `/admin?adminToken=${encodeURIComponent(adminToken)}`;
-  }, [adminToken]);
-
   const currentRoundBanner = useMemo(() => {
     if (snapshot.status === "disabled") {
       return {
@@ -577,11 +594,6 @@ export function BracketClient(props: BracketClientProps) {
 
     return snapshot.rosterMembers.find((member) => member.id === selectedRosterMemberId)?.name ?? null;
   }, [mode, selectedRosterMemberId, selectedRosterMemberName, snapshot]);
-
-  const createNewBracketHref = useMemo(
-    () => (adminToken ? `/admin?adminToken=${encodeURIComponent(adminToken)}` : "/admin"),
-    [adminToken],
-  );
 
   const activeMatchups = currentRound?.matchups.filter((matchup) => matchup.status === "live") ?? [];
   const tieBreakerMatchups =
@@ -777,6 +789,8 @@ export function BracketClient(props: BracketClientProps) {
         (member) => !member.claimed || member.isYou || member.name === selectedRosterMemberName,
       )
     : [];
+
+  const workspaceStatus = adminTournamentStatus(snapshot);
 
   const voteWatchAlertCount = isPublicSnapshot(snapshot)
     ? 0
@@ -1592,16 +1606,6 @@ export function BracketClient(props: BracketClientProps) {
       );
     }
 
-    if (adminSection === "create") {
-      return (
-        <section className="bw-section-panel active">
-          <div className="bw-panel-title">New Tournament</div>
-          <p className="bw-panel-sub">Set up a fresh bracket. Once created, share the player link.</p>
-          <CreateBracketForm variant="admin" />
-        </section>
-      );
-    }
-
     if (adminSection === "links") {
       return (
         <section className="bw-section-panel active">
@@ -1628,9 +1632,9 @@ export function BracketClient(props: BracketClientProps) {
                   Open Test Voting
                 </a>
               ) : null}
-              <a className="bw-btn bw-btn-outline" href={createNewBracketHref}>
+              <Link className="bw-btn bw-btn-outline" href="/admin/new">
                 New Tournament
-              </a>
+              </Link>
             </div>
             <div className="bw-link-stack">
               <div>
@@ -1656,46 +1660,12 @@ export function BracketClient(props: BracketClientProps) {
               )}
               {displayAdminUrl ? (
                 <div>
-                  <span>Secret admin link</span>
+                  <span>Admin link</span>
                   <code>{displayAdminUrl}</code>
                 </div>
               ) : null}
             </div>
           </div>
-        </section>
-      );
-    }
-
-    if (adminSection === "history") {
-      return (
-        <section className="bw-section-panel active">
-          <div className="bw-panel-title">Past Tournaments</div>
-          <p className="bw-panel-sub">Every debate that has been settled.</p>
-          {snapshot.adminHistory?.length ? (
-            snapshot.adminHistory.map((item, index) => (
-              <div className="bw-history-item" key={item.id}>
-                <div>
-                  <div className="bw-history-num">Tournament #{snapshot.adminHistory!.length - index}</div>
-                  <div className="bw-history-topic">{item.title}</div>
-                  <div className="bw-history-winner">Champion: {item.winnerName}</div>
-                </div>
-                <div className="bw-history-meta">
-                  <div>{formatEasternDateTime(item.tournamentDate)}</div>
-                  <a href={`/past/${encodeURIComponent(item.id)}`}>View bracket</a>
-                  {reuseTemplateBase ? (
-                    <a href={`${reuseTemplateBase}&template=${encodeURIComponent(item.id)}`}>
-                      Reuse topic
-                    </a>
-                  ) : null}
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="bw-card">
-              <div className="bw-card-title">No completed tournaments yet</div>
-              <p className="bw-muted">Previous winners will show up here once you finish a bracket.</p>
-            </div>
-          )}
         </section>
       );
     }
@@ -1834,90 +1804,51 @@ export function BracketClient(props: BracketClientProps) {
   if (mode === "admin") {
     return (
       <div className="bw-admin-app">
-        <nav className="bw-admin-nav" aria-label="Admin">
-          <div className="bw-nav-logo">
-            Bored<span>@Work</span>
-          </div>
-          <span className="bw-nav-badge">{isTestBracket ? "Admin Test Mode" : "Admin"}</span>
-          <div className="bw-btn-row">
-            <Link className="bw-btn bw-btn-outline" href="/admin">
-              Admin Home
-            </Link>
-            <Link className="bw-btn bw-btn-outline" href="/">
-              Public Home
-            </Link>
-          </div>
-          <div className="bw-nav-tabs">
-            <button
-              className={`bw-nav-tab ${adminSection === "live" ? "active" : ""}`}
-              onClick={() => setAdminSection("live")}
-              type="button"
-            >
-              Live
-            </button>
-            <button
-              className={`bw-nav-tab ${adminSection === "create" ? "active" : ""}`}
-              onClick={() => setAdminSection("create")}
-              type="button"
-            >
-              + New Tournament
-            </button>
-            <button
-              className={`bw-nav-tab ${adminSection === "history" ? "active" : ""}`}
-              onClick={() => setAdminSection("history")}
-              type="button"
-            >
-              History
-            </button>
-          </div>
-        </nav>
+        <AdminTopNav active="workspace" />
         <div className="bw-admin-main">
           <aside className="bw-sidebar">
-            <div className="bw-sidebar-label">{isTestBracket ? "Test Tournament" : "Live Tournament"}</div>
-            {[
-              ["live", "Overview"],
-              ["roster", "Who's Voted"],
-              ["watch", "Vote Watch"],
-              ["results", "Live Results"],
-              ["advance", "Advance Round"],
-              ["links", "Links"],
-            ].map(([section, label]) => (
-              <button
-                className={`bw-sidebar-link ${adminSection === section ? "active" : ""}`}
+            <Link className="bw-sidebar-back" href="/admin">
+              &larr; All tournaments
+            </Link>
+            <div className="bw-sidebar-tournament">
+              <div className="bw-sidebar-tournament-title">{snapshot.title}</div>
+              <span className={ADMIN_STATUS_TAG[workspaceStatus].className}>
+                {ADMIN_STATUS_TAG[workspaceStatus].label}
+              </span>
+            </div>
+            {(
+              [
+                ["live", "Overview"],
+                ["roster", "Who's Voted"],
+                ["watch", "Vote Watch"],
+                ["results", "Live Results"],
+                ["advance", "Advance Round"],
+                ["links", "Links"],
+                ["danger", "Danger Zone"],
+              ] as Array<[AdminSection, string]>
+            ).map(([section, label]) => (
+              <a
+                className={`bw-sidebar-link ${section === "danger" ? "danger-link" : ""} ${
+                  adminSection === section ? "active" : ""
+                }`}
+                href={adminWorkspacePath(snapshot.id, section)}
                 key={section}
-                onClick={() => setAdminSection(section as AdminSection)}
-                type="button"
+                onClick={(event) => {
+                  // Plain clicks switch in place; ctrl/cmd-click still opens a new tab.
+                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
+                    return;
+                  }
+                  event.preventDefault();
+                  setAdminSection(section);
+                }}
               >
                 <span>{label}</span>
                 {section === "live" ? <span className="bw-sidebar-live-dot" /> : null}
                 {section === "watch" && voteWatchAlertCount > 0 ? (
                   <span className="bw-tag bw-tag-coral">{voteWatchAlertCount}</span>
                 ) : null}
-              </button>
+              </a>
             ))}
-            <div className="bw-sidebar-label">Setup</div>
-            <button
-              className={`bw-sidebar-link ${adminSection === "create" ? "active" : ""}`}
-              onClick={() => setAdminSection("create")}
-              type="button"
-            >
-              New Tournament
-            </button>
-            <button
-              className={`bw-sidebar-link ${adminSection === "history" ? "active" : ""}`}
-              onClick={() => setAdminSection("history")}
-              type="button"
-            >
-              Past Tournaments
-            </button>
-            <div className="bw-sidebar-label">Danger</div>
-            <button
-              className={`bw-sidebar-link danger-link ${adminSection === "danger" ? "active" : ""}`}
-              onClick={() => setAdminSection("danger")}
-              type="button"
-            >
-              Danger Zone
-            </button>
           </aside>
           <main className="bw-admin-content">
             {error ? <p className="bw-error-text">{error}</p> : null}

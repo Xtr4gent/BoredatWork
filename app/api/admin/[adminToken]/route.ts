@@ -14,14 +14,5 @@ export async function GET(
     return NextResponse.json({ error: "Bracket not found." }, { status: 404 });
   }
 
-  const response = jsonWithETag(request, await buildAdminSnapshot(bracket, adminToken));
-  response.cookies.set("workquiz_admin_token", adminToken, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 60 * 60 * 24 * 30,
-    path: "/",
-  });
-
-  return response;
+  return jsonWithETag(request, await buildAdminSnapshot(bracket, adminToken));
 }

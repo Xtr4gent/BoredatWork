@@ -140,6 +140,27 @@ export interface CreateBracketInput {
   revoteDurationHours?: number;
 }
 
+import type { AdminTournamentStatus } from "@/lib/workquiz/admin-sections";
+
+export type { AdminTournamentStatus };
+
+/** One row of the admin Tournaments list. */
+export interface AdminTournamentSummary {
+  id: string;
+  title: string;
+  kind: BracketKind;
+  status: AdminTournamentStatus;
+  /** True when /voting shows this tournament (it may also be finished). */
+  isOnVoting: boolean;
+  createdAt: string;
+  startsAt: string | null;
+  currentRoundLabel: string | null;
+  roundCount: number;
+  entrantCount: number;
+  playerCount: number;
+  championName: string | null;
+}
+
 export interface AdminHistoryItem {
   id: string;
   title: string;
