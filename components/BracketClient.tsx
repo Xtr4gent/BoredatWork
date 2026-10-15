@@ -646,6 +646,16 @@ export function BracketClient(props: BracketClientProps) {
         setError(result.error ?? "Could not register your name.");
         setIdentityPickerOpen(true);
         setIdentityReady(Boolean(previousName));
+        // The name was probably just taken elsewhere: reload the roster so it
+        // drops out of the picker. Leaves the picker open and the error shown.
+        const latestUrl = `/api/brackets/${token}`;
+        const latest = await fetch(latestUrl, { cache: "no-store" }).catch(() => null);
+        if (latest?.ok) {
+          const latestSnapshot = (await latest.json()) as PublicBracketSnapshot;
+          const etag = latest.headers.get("etag");
+          lastEtagRef.current = etag ? { url: latestUrl, etag } : null;
+          setSnapshot(latestSnapshot);
+        }
         return;
       }
 
@@ -759,6 +769,14 @@ export function BracketClient(props: BracketClientProps) {
 
     setSnapshot(result);
   }
+
+  // Names picked on another device are hidden from the picker. Your own name
+  // stays, and so does the one you just tapped while the server confirms it.
+  const pickableRosterMembers = isPublicSnapshot(snapshot)
+    ? snapshot.rosterMembers.filter(
+        (member) => !member.claimed || member.isYou || member.name === selectedRosterMemberName,
+      )
+    : [];
 
   const voteWatchAlertCount = isPublicSnapshot(snapshot)
     ? 0
@@ -1911,28 +1929,31 @@ export function BracketClient(props: BracketClientProps) {
               Who are you?
             </div>
             <p className="bw-modal-sub">
-              Pick your name to cast your vote. Each name works on one device. If yours shows as taken, ask the
-              organiser to free it up.
+              Pick your name to cast your vote. Each name works on one device, and names already picked on
+              another device are hidden.
             </p>
-            <div className="bw-modal-roster">
-              {isPublicSnapshot(snapshot)
-                ? snapshot.rosterMembers.map((member) => (
-                    <button
-                      className={`bw-roster-btn ${
-                        member.isYou || member.name === selectedRosterMemberName ? "selected" : ""
-                      }`}
-                      disabled={member.claimed && !member.isYou}
-                      key={member.name}
-                      onClick={() => void handleRosterSelection(member.name)}
-                      type="button"
-                    >
-                      {member.name}
-                      {member.isYou ? " (you)" : member.claimed ? " (taken)" : ""}
-                    </button>
-                  ))
-                : null}
-            </div>
-            <p className="bw-modal-footnote">Not on the list? Talk to the admin.</p>
+            {pickableRosterMembers.length ? (
+              <div className="bw-modal-roster">
+                {pickableRosterMembers.map((member) => (
+                  <button
+                    className={`bw-roster-btn ${
+                      member.isYou || member.name === selectedRosterMemberName ? "selected" : ""
+                    }`}
+                    key={member.name}
+                    onClick={() => void handleRosterSelection(member.name)}
+                    type="button"
+                  >
+                    {member.name}
+                    {member.isYou ? " (you)" : ""}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="bw-modal-sub">Every name has been picked on another device.</p>
+            )}
+            <p className="bw-modal-footnote">
+              Name missing? It may be in use on another device. Ask the organiser to free it up.
+            </p>
           </section>
         </div>
       ) : null}

@@ -4,6 +4,7 @@ import { isAdminAuthenticated } from "@/lib/workquiz/admin-auth";
 import { getOrCreateBrowserToken, getRememberedClaim, setRememberedClaim } from "@/lib/workquiz/auth";
 import { buildPublicSnapshot, claimVoterIdentity, findBracketByPublicToken } from "@/lib/workquiz/bracket";
 import { getClientInfo } from "@/lib/workquiz/client-info";
+import { publish } from "@/lib/workquiz/realtime";
 import { mergeRememberedEntry, rememberedEntryForBracket } from "@/lib/workquiz/voter";
 
 export async function POST(
@@ -41,6 +42,9 @@ export async function POST(
     });
 
     await setRememberedClaim(mergeRememberedEntry(updated, rememberedCookie, rosterMemberId, claimId));
+    // Open voting pages refresh on any realtime event, so the picked name
+    // disappears from everyone else's picker within a second.
+    publish(updated.publicToken, { type: "roster-claimed" });
     return NextResponse.json(
       buildPublicSnapshot(updated, {
         rosterMemberId,
