@@ -359,6 +359,7 @@ export function BracketClient(props: BracketClientProps) {
   // While the WebSocket is connected nothing polls, so a failed refresh has
   // to schedule its own retry or the page could sit on stale data.
   const refreshRetryRef = useRef<number | null>(null);
+  const unmountedRef = useRef(false);
 
   const refresh = useEffectEvent(async () => {
     if (mode === "history") {
@@ -378,7 +379,9 @@ export function BracketClient(props: BracketClientProps) {
         outcome.response === null ? "Connection lost. Retrying..." : `Could not refresh the bracket. ${outcome.error}`;
       refreshErrorRef.current = message;
       setError(message);
-      if (refreshRetryRef.current === null) {
+      // A refresh still in flight when the page closes must not start a new
+      // retry chain after the cleanup below has run.
+      if (refreshRetryRef.current === null && !unmountedRef.current) {
         refreshRetryRef.current = window.setTimeout(() => {
           refreshRetryRef.current = null;
           void refresh();
@@ -416,16 +419,18 @@ export function BracketClient(props: BracketClientProps) {
     }
   });
 
-  // Drop a pending refresh retry when the page goes away.
-  useEffect(
-    () => () => {
+  // Drop a pending refresh retry when the page goes away. (Set back to
+  // mounted on every run: development mode mounts effects twice.)
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
       if (refreshRetryRef.current !== null) {
         window.clearTimeout(refreshRetryRef.current);
         refreshRetryRef.current = null;
       }
-    },
-    [],
-  );
+    };
+  }, []);
 
   useEffect(() => {
     if (mode === "history") {
