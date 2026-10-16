@@ -111,6 +111,19 @@ export default async function AdminPage({
                 <p className="bw-muted">Finished tournaments show up here with their champion.</p>
               </div>
             )}
+
+            <div className="bw-card-title bw-tournament-group">Admin sign-in</div>
+            <div className="bw-card bw-card-header-row">
+              <p className="bw-muted">
+                A sign-in lasts 30 days on each device. Lost a phone or signed in on a shared computer? Sign every
+                device out, then sign in again here.
+              </p>
+              <form action="/api/admin/sessions/revoke" method="post">
+                <button className="bw-btn bw-btn-outline" type="submit">
+                  Sign out everywhere
+                </button>
+              </form>
+            </div>
           </div>
         </section>
       </div>

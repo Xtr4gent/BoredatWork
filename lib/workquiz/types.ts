@@ -41,7 +41,8 @@ export type VoterEventType =
   | "switch_blocked"
   | "reclaim"
   | "release"
-  | "reset_all";
+  | "reset_all"
+  | "undo";
 
 export interface VoterEventRecord {
   id: string;
@@ -119,10 +120,23 @@ export interface BracketRecord {
   /** Capped audit log of name claims, blocked takeovers and resets. */
   voterEvents?: VoterEventRecord[];
   rounds: RoundRecord[];
+  /** The tournament as it was before the last restart or shut down. */
+  undo?: BracketUndoRecord;
+}
+
+export type BracketUndoAction = "restart" | "shutdown";
+
+export interface BracketUndoRecord {
+  action: BracketUndoAction;
+  at: string;
+  /** JSON of the whole bracket record before the action, minus its own undo. */
+  bracket: string;
 }
 
 export interface StoreShape {
   brackets: BracketRecord[];
+  /** Admin sessions issued before this time are refused ("sign out everywhere"). */
+  adminSessionsValidAfter?: string;
 }
 
 export interface CreateBracketInput {
@@ -252,6 +266,8 @@ export interface BracketSnapshot {
   currentRoundRosterStatuses: BracketSnapshotRosterStatus[];
   adminHistory?: AdminHistoryItem[];
   voteWatch?: VoteWatchSnapshot;
+  /** Admin only: the last restart or shut down, if it can still be undone. */
+  undo?: { action: BracketUndoAction; at: string } | null;
 }
 
 export type VoteWatchSeverity = "high" | "medium" | "low";

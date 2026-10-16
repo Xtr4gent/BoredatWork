@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { buildAdminSnapshot, disableBracket, matchesAdminKey } from "@/lib/workquiz/bracket";
+import {
+  buildAdminSnapshot,
+  copyForUndo,
+  disableBracket,
+  matchesAdminKey,
+  recordUndo,
+} from "@/lib/workquiz/bracket";
 import { publish } from "@/lib/workquiz/realtime";
 import { updateStore } from "@/lib/workquiz/store";
 
@@ -10,6 +16,7 @@ export async function POST(
 ) {
   const { adminToken } = await context.params;
   let updatedBracketPublicToken: string | null = null;
+  let refusal: string | null = null;
   const updatedStore = await updateStore((store) => {
     const mutable = store.brackets.find((entry) => matchesAdminKey(entry, adminToken));
 
@@ -17,7 +24,16 @@ export async function POST(
       throw new Error("Bracket not found.");
     }
 
+    if (mutable.status === "disabled") {
+      // Shutting down twice would replace the useful undo copy with a
+      // copy of the already shut-down tournament.
+      refusal = "This tournament is already shut down.";
+      return store;
+    }
+
+    const copy = copyForUndo(mutable);
     disableBracket(mutable);
+    recordUndo(mutable, "shutdown", copy);
     updatedBracketPublicToken = mutable.publicToken;
     return store;
   }).catch((error) => {
@@ -26,6 +42,10 @@ export async function POST(
     }
     throw error;
   });
+
+  if (refusal) {
+    return NextResponse.json({ error: refusal }, { status: 400 });
+  }
 
   if (!updatedStore || !updatedBracketPublicToken) {
     return NextResponse.json({ error: "Bracket not found." }, { status: 404 });

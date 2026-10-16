@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { buildAdminSnapshot, matchesAdminKey, restartBracket } from "@/lib/workquiz/bracket";
+import {
+  buildAdminSnapshot,
+  copyForUndo,
+  matchesAdminKey,
+  recordUndo,
+  restartBracket,
+} from "@/lib/workquiz/bracket";
 import { publish } from "@/lib/workquiz/realtime";
 import { updateStore } from "@/lib/workquiz/store";
 
@@ -18,8 +24,10 @@ export async function POST(
       throw new Error("Bracket not found.");
     }
 
+    const copy = copyForUndo(mutable);
     try {
       restartBracket(mutable);
+      recordUndo(mutable, "restart", copy);
     } catch (error) {
       refusal = error instanceof Error ? error.message : "This tournament can't be restarted.";
       return store;

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 
+import { readSecret } from "@/lib/workquiz/secrets";
 import type { EntrantInput } from "@/lib/workquiz/types";
 
 export function slugify(value: string) {
@@ -12,7 +13,7 @@ export function slugify(value: string) {
 }
 
 export function hashValue(value: string) {
-  const secret = process.env.WORKQUIZ_SECRET ?? "dev-secret";
+  const secret = readSecret("WORKQUIZ_SECRET");
   return crypto.createHmac("sha256", secret).update(value).digest("hex");
 }
 
