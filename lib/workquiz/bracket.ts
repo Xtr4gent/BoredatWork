@@ -1256,6 +1256,12 @@ export function undoLastAction(store: StoreShape, bracket: BracketRecord) {
     throw new Error("There is nothing to undo on this tournament.");
   }
 
+  if (bracket.status === "completed" && bracketKind(bracket) === "public") {
+    // Same rule as restartBracket: restoring the older copy would erase the
+    // champion this run produced.
+    throw new Error("This tournament has finished since then, so undoing would erase its champion.");
+  }
+
   const { action } = bracket.undo;
   const restored = JSON.parse(bracket.undo.bracket) as BracketRecord;
   if (restored.id !== bracket.id) {
@@ -1823,7 +1829,9 @@ export async function buildAdminSnapshot(bracket: BracketRecord, adminToken: str
     adminToken,
     adminHistory: await buildAdminHistory(),
   });
-  snapshot.undo = bracket.undo ? { action: bracket.undo.action, at: bracket.undo.at } : null;
+  const undoBlocked = bracket.status === "completed" && bracketKind(bracket) === "public";
+  snapshot.undo =
+    bracket.undo && !undoBlocked ? { action: bracket.undo.action, at: bracket.undo.at } : null;
   return snapshot;
 }
 

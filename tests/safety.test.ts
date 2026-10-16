@@ -277,3 +277,18 @@ test("guessing from many addresses at once hits an overall cap", async () => {
   });
   resetLoginFailures();
 });
+
+test("undo is refused once the restarted run has finished, so its champion survives", async () => {
+  await resetStore();
+  const bracket = await makeTournament();
+  assert.equal((await adminPost(restartRoute, bracket.id)).status, 200);
+  await updateStore((store) => {
+    store.brackets.find((entry) => entry.id === bracket.id)!.status = "completed";
+    return store;
+  });
+
+  const response = await adminPost(undoRoute, bracket.id);
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /finished/i);
+  assert.equal((await stored(bracket.id)).status, "completed");
+});

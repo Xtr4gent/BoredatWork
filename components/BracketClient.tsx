@@ -102,6 +102,7 @@ function voteRequestHeaders() {
 }
 
 const CONNECTION_ERROR = "Couldn't reach the server. Check your connection and try again.";
+const REFRESH_RETRY_MS = 5000;
 
 type JsonResult<T> =
   | { ok: true; response: Response; data: T }
@@ -355,6 +356,9 @@ export function BracketClient(props: BracketClientProps) {
   // The message a failed refresh put on screen, so the next good refresh can
   // take it down again without hiding errors from the voter's own actions.
   const refreshErrorRef = useRef<string | null>(null);
+  // While the WebSocket is connected nothing polls, so a failed refresh has
+  // to schedule its own retry or the page could sit on stale data.
+  const refreshRetryRef = useRef<number | null>(null);
 
   const refresh = useEffectEvent(async () => {
     if (mode === "history") {
@@ -374,7 +378,18 @@ export function BracketClient(props: BracketClientProps) {
         outcome.response === null ? "Connection lost. Retrying..." : `Could not refresh the bracket. ${outcome.error}`;
       refreshErrorRef.current = message;
       setError(message);
+      if (refreshRetryRef.current === null) {
+        refreshRetryRef.current = window.setTimeout(() => {
+          refreshRetryRef.current = null;
+          void refresh();
+        }, REFRESH_RETRY_MS);
+      }
       return;
+    }
+
+    if (refreshRetryRef.current !== null) {
+      window.clearTimeout(refreshRetryRef.current);
+      refreshRetryRef.current = null;
     }
 
     if (refreshErrorRef.current) {
@@ -400,6 +415,17 @@ export function BracketClient(props: BracketClientProps) {
       }
     }
   });
+
+  // Drop a pending refresh retry when the page goes away.
+  useEffect(
+    () => () => {
+      if (refreshRetryRef.current !== null) {
+        window.clearTimeout(refreshRetryRef.current);
+        refreshRetryRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (mode === "history") {
