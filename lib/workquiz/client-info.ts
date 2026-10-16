@@ -15,7 +15,7 @@ export function browserIdForToken(browserToken: string) {
   return shortHash("browser", browserToken);
 }
 
-function clientIp(headers: Headers) {
+export function clientIp(headers: Headers) {
   // The public hostname sits behind Cloudflare, which sets cf-connecting-ip.
   // Railway's own proxy sets x-forwarded-for / x-real-ip.
   const candidates = [

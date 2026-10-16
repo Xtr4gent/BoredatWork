@@ -5,6 +5,7 @@ import next from "next";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { subscribe } from "./lib/workquiz/realtime";
+import { assertSecretsConfigured } from "./lib/workquiz/secrets";
 
 const port = Number(process.env.PORT ?? 3000);
 const dev = process.env.NODE_ENV !== "production";
@@ -13,6 +14,9 @@ const HEARTBEAT_INTERVAL_MS = 30000;
 type HeartbeatWebSocket = WebSocket & { isAlive?: boolean };
 
 async function main() {
+  // Fail the deploy rather than serve with the public development secrets.
+  assertSecretsConfigured();
+
   const server = http.createServer();
   const app = next({ dev, hostname: "0.0.0.0", port });
   const handle = app.getRequestHandler();

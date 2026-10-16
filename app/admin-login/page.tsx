@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import {
@@ -7,6 +8,7 @@ import {
   sanitizeAdminRedirectTarget,
   signInAdmin,
 } from "@/lib/workquiz/admin-auth";
+import { clientIp } from "@/lib/workquiz/client-info";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,10 @@ function errorMessage(error?: string) {
       return "Admin auth is not configured yet. Add the username and password env vars first.";
     case "invalid":
       return "That username or password did not match.";
+    case "locked":
+      return "Too many failed sign-ins. Wait 15 minutes and try again.";
+    case "signed-out-everywhere":
+      return "Every admin session has been signed out. Sign in again on this device.";
     default:
       return null;
   }
@@ -39,7 +45,7 @@ export default async function AdminLoginPage({
     const target = sanitizeAdminRedirectTarget(String(formData.get("next") ?? ""));
     const username = String(formData.get("username") ?? "");
     const password = String(formData.get("password") ?? "");
-    const result = await signInAdmin(username, password);
+    const result = await signInAdmin(username, password, { clientIp: clientIp(await headers()) });
 
     if (!result.ok) {
       redirect(buildAdminLoginRedirect(target, result.reason));

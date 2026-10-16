@@ -23,6 +23,7 @@ import {
   RosterMemberRecord,
   RoundRecord,
   StoreShape,
+  BracketUndoAction,
   VoterClientInfo,
 } from "@/lib/workquiz/types";
 import { adminTournamentStatus, adminWorkspacePath } from "@/lib/workquiz/admin-sections";
@@ -1182,10 +1183,18 @@ function inferScheduleKind(bracket: BracketRecord): "daily" | "back-to-back" {
  * - Back-to-back brackets start round one now (or at their original start
  *   if that is still in the future), keeping each round's length.
  * Shut-down brackets are refused: restarting must not quietly revive them.
+ * Finished public ones are too: a restart would wipe the champion from
+ * history. Finished test brackets can be rerun; they are never in history.
  */
 export function restartBracket(bracket: BracketRecord, now = new Date()) {
   if (bracket.status === "disabled") {
     throw new Error("This tournament has been shut down, so it can't be restarted.");
+  }
+
+  if (bracket.status === "completed" && bracketKind(bracket) === "public") {
+    throw new Error(
+      "This tournament has finished, so restarting it would erase its champion. Use Reuse on the Tournaments page to run it again.",
+    );
   }
 
   const nowMs = now.getTime();
@@ -1220,6 +1229,57 @@ export function restartBracket(bracket: BracketRecord, now = new Date()) {
     undefined,
     nowMs,
   );
+}
+
+/**
+ * Restart and shut down are the two admin actions that throw data away. Each
+ * keeps a copy of the tournament as it was, so the most recent one can be
+ * undone. Take the copy before the action and keep it only if the action
+ * went through: `recordUndo(bracket, action, copyForUndo(bracket))`.
+ */
+export function copyForUndo(bracket: BracketRecord) {
+  return JSON.stringify({ ...bracket, undo: undefined });
+}
+
+export function recordUndo(bracket: BracketRecord, action: BracketUndoAction, copy: string, now = new Date()) {
+  bracket.undo = { action, at: now.toISOString(), bracket: copy };
+}
+
+/**
+ * Puts a tournament back the way it was before its last restart or shut
+ * down. Votes and name picks made since then are lost. If another
+ * tournament has taken /voting in the meantime, the restored one stays off
+ * /voting rather than bumping it.
+ */
+export function undoLastAction(store: StoreShape, bracket: BracketRecord) {
+  if (!bracket.undo) {
+    throw new Error("There is nothing to undo on this tournament.");
+  }
+
+  const { action } = bracket.undo;
+  const restored = JSON.parse(bracket.undo.bracket) as BracketRecord;
+  if (restored.id !== bracket.id) {
+    throw new Error("The saved copy belongs to a different tournament.");
+  }
+
+  const keptOffVoting =
+    restored.isCurrentPublic && store.brackets.some((other) => other.id !== bracket.id && other.isCurrentPublic);
+  if (keptOffVoting) {
+    restored.isCurrentPublic = false;
+  }
+
+  for (const key of Object.keys(bracket)) {
+    delete (bracket as unknown as Record<string, unknown>)[key];
+  }
+  Object.assign(bracket, restored);
+  recordVoterEvent(bracket, {
+    type: "undo",
+    rosterMemberId: null,
+    client: null,
+    note: action === "restart" ? "Restart undone" : "Shut down undone",
+  });
+
+  return { action, keptOffVoting };
 }
 
 export function clearVoterBindings(bracket: BracketRecord) {
@@ -1758,11 +1818,13 @@ export function buildPublicSnapshot(
 }
 
 export async function buildAdminSnapshot(bracket: BracketRecord, adminToken: string) {
-  return buildSnapshot(bracket, {
+  const snapshot = buildSnapshot(bracket, {
     includeAdminUrl: true,
     adminToken,
     adminHistory: await buildAdminHistory(),
   });
+  snapshot.undo = bracket.undo ? { action: bracket.undo.action, at: bracket.undo.at } : null;
+  return snapshot;
 }
 
 export function buildPreviewSnapshot(input: CreateBracketInput): BracketSnapshot {

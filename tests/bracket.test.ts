@@ -22,7 +22,7 @@ import {
 } from "@/lib/workquiz/bracket";
 import { GET as getStatusRoute } from "@/app/api/status/route";
 import {
-  buildExpectedAdminSessionValue,
+  buildAdminSessionValue,
   hasValidAdminSessionValue,
   isAdminAuthConfigured,
   sanitizeAdminRedirectTarget,
@@ -1106,7 +1106,7 @@ test("admin auth session token matches the configured env credentials", async ()
 
   try {
     assert.equal(isAdminAuthConfigured(), true);
-    const sessionValue = await buildExpectedAdminSessionValue();
+    const sessionValue = await buildAdminSessionValue();
 
     assert.ok(sessionValue);
     assert.equal(await hasValidAdminSessionValue(sessionValue), true);

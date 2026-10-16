@@ -1153,6 +1153,39 @@ button {
   letter-spacing: -0.03em;
 }
 
+.bw-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bw-modal-close {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--bw-border);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--bw-white);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.bw-modal-close:hover,
+.bw-modal-close:focus-visible {
+  border-color: var(--bw-lime);
+  color: var(--bw-lime);
+}
+
+.bw-modal-name {
+  margin-bottom: 12px;
+  color: var(--bw-lime);
+  font-size: 22px;
+  font-weight: 700;
+}
+
 .bw-modal-sub,
 .bw-modal-footnote,
 .bw-muted {

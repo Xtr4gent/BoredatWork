@@ -4,8 +4,8 @@ import { NextResponse } from "next/server";
 import {
   ADMIN_AUTH,
   buildAdminLoginRedirect,
-  hasValidAdminSessionValue,
   isAdminAuthConfigured,
+  isAdminSessionValueCurrent,
 } from "@/lib/workquiz/admin-auth";
 
 export async function proxy(request: NextRequest) {
@@ -26,7 +26,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const sessionValue = request.cookies.get(ADMIN_AUTH.sessionCookie)?.value;
-  if (await hasValidAdminSessionValue(sessionValue)) {
+  if (await isAdminSessionValueCurrent(sessionValue)) {
     return NextResponse.next();
   }
 

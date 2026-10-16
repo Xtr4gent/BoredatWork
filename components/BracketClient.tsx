@@ -101,6 +101,51 @@ function voteRequestHeaders() {
   };
 }
 
+const CONNECTION_ERROR = "Couldn't reach the server. Check your connection and try again.";
+
+type JsonResult<T> =
+  | { ok: true; response: Response; data: T }
+  | { ok: false; response: Response | null; error: string };
+
+/**
+ * fetch + JSON that never throws. A dropped connection, or an HTML error page
+ * from a proxy in front of the app, comes back as a message people can act
+ * on instead of an uncaught promise. A 304 is returned as ok with no data.
+ */
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<JsonResult<T | null>> {
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch {
+    return { ok: false, response: null, error: CONNECTION_ERROR };
+  }
+
+  if (response.status === 304) {
+    return { ok: true, response, data: null };
+  }
+
+  let body: (T & { error?: string }) | null = null;
+  try {
+    body = (await response.json()) as T & { error?: string };
+  } catch {
+    body = null;
+  }
+
+  if (!response.ok || !body) {
+    return {
+      ok: false,
+      response,
+      error:
+        body?.error ??
+        (response.ok
+          ? "The server sent back something the app couldn't read. Try again."
+          : `The server had a problem (${response.status}). Try again in a moment.`),
+    };
+  }
+
+  return { ok: true, response, data: body };
+}
+
 const voteWatchSeverityTag: Record<VoteWatchSeverity, string> = {
   high: "bw-tag bw-tag-coral",
   medium: "bw-tag bw-tag-gold",
@@ -114,6 +159,7 @@ const voterEventLabel: Record<VoterEventType, string> = {
   reclaim: "Moved to new browser",
   release: "Name freed by admin",
   reset_all: "All names reset",
+  undo: "Admin undo",
 };
 
 const easternFormatter = new Intl.DateTimeFormat("en-US", {
@@ -245,6 +291,7 @@ export function BracketClient(props: BracketClientProps) {
   const adminToken = props.mode === "admin" ? props.adminToken : undefined;
   const [snapshot, setSnapshot] = useState<BracketSnapshot | PublicBracketSnapshot>(initialSnapshot);
   const [error, setError] = useState<string | null>(null);
+  const [adminActionPending, setAdminActionPending] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [selectedRosterMemberName, setSelectedRosterMemberName] = useState<string | null>(
     mode === "public" ? initialSnapshot.selectedRosterMemberName ?? null : null,
@@ -305,6 +352,9 @@ export function BracketClient(props: BracketClientProps) {
   const [rosterAddPending, setRosterAddPending] = useState(false);
   const hydrated = useHydrated();
   const lastEtagRef = useRef<{ url: string; etag: string } | null>(null);
+  // The message a failed refresh put on screen, so the next good refresh can
+  // take it down again without hiding errors from the voter's own actions.
+  const refreshErrorRef = useRef<string | null>(null);
 
   const refresh = useEffectEvent(async () => {
     if (mode === "history") {
@@ -318,14 +368,24 @@ export function BracketClient(props: BracketClientProps) {
       headers["If-None-Match"] = lastEtagRef.current.etag;
     }
 
-    const response = await fetch(url, { cache: "no-store", headers });
-    if (response.status === 304) {
+    const outcome = await fetchJson<BracketSnapshot | PublicBracketSnapshot>(url, { cache: "no-store", headers });
+    if (!outcome.ok) {
+      const message =
+        outcome.response === null ? "Connection lost. Retrying..." : `Could not refresh the bracket. ${outcome.error}`;
+      refreshErrorRef.current = message;
+      setError(message);
       return;
     }
 
-    const result = (await response.json()) as (BracketSnapshot | PublicBracketSnapshot) & { error?: string };
-    if (!response.ok) {
-      setError(result.error ?? "Could not refresh the bracket.");
+    if (refreshErrorRef.current) {
+      const stale = refreshErrorRef.current;
+      refreshErrorRef.current = null;
+      setError((current) => (current === stale ? null : current));
+    }
+
+    const result = outcome.data;
+    const response = outcome.response;
+    if (!result) {
       return;
     }
 
@@ -643,30 +703,29 @@ export function BracketClient(props: BracketClientProps) {
       setIdentityPickerOpen(false);
       setIdentityReady(true);
 
-      const response = await fetch(`/api/brackets/${token}/identity`, {
+      const outcome = await fetchJson<PublicBracketSnapshot>(`/api/brackets/${token}/identity`, {
         method: "POST",
         headers: voteRequestHeaders(),
         body: JSON.stringify({ rosterMemberName: nextRosterMemberName }),
       });
-      const result = (await response.json()) as PublicBracketSnapshot & { error?: string };
-      if (!response.ok) {
+      if (!outcome.ok || !outcome.data) {
         setSelectedRosterMemberName(previousName);
-        setError(result.error ?? "Could not register your name.");
+        setError(outcome.ok ? "Could not register your name." : outcome.error);
         setIdentityPickerOpen(true);
         setIdentityReady(Boolean(previousName));
         // The name was probably just taken elsewhere: reload the roster so it
         // drops out of the picker. Leaves the picker open and the error shown.
         const latestUrl = `/api/brackets/${token}`;
-        const latest = await fetch(latestUrl, { cache: "no-store" }).catch(() => null);
-        if (latest?.ok) {
-          const latestSnapshot = (await latest.json()) as PublicBracketSnapshot;
-          const etag = latest.headers.get("etag");
+        const latest = await fetchJson<PublicBracketSnapshot>(latestUrl, { cache: "no-store" });
+        if (latest.ok && latest.data) {
+          const etag = latest.response.headers.get("etag");
           lastEtagRef.current = etag ? { url: latestUrl, etag } : null;
-          setSnapshot(latestSnapshot);
+          setSnapshot(latest.data);
         }
         return;
       }
 
+      const result = outcome.data;
       setSnapshot(result);
       setSelectedRosterMemberName(result.selectedRosterMemberName ?? nextRosterMemberName);
       return;
@@ -693,24 +752,26 @@ export function BracketClient(props: BracketClientProps) {
 
     setPendingVotes((previous) => ({ ...previous, [matchupSlot]: side }));
 
-    const response = await fetch(`/api/brackets/${token}/votes`, {
+    const outcome = await fetchJson<PublicBracketSnapshot>(`/api/brackets/${token}/votes`, {
       method: "POST",
       headers: voteRequestHeaders(),
       body: JSON.stringify({ matchupSlot, side }),
     });
-    const result = (await response.json()) as PublicBracketSnapshot & { error?: string };
 
+    // Always release the card, whatever happened, so it never sticks on
+    // "Submitting your vote...".
     setPendingVotes((previous) => {
       const next = { ...previous };
       delete next[matchupSlot];
       return next;
     });
 
-    if (!response.ok) {
-      setError(result.error ?? "Vote failed.");
+    if (!outcome.ok || !outcome.data) {
+      setError(outcome.ok ? "Vote failed. Try again." : outcome.error);
       return;
     }
 
+    const result = outcome.data;
     setSnapshot(result);
     setSelectedRosterMemberName(result.selectedRosterMemberName ?? selectedRosterMemberName);
   }
@@ -738,24 +799,78 @@ export function BracketClient(props: BracketClientProps) {
     setSnapshot(result);
   }
 
+  /**
+   * Confirms a destructive action. A public tournament needs its name typed,
+   * so a stray click can't wipe it; a test one only needs OK.
+   */
+  function confirmDangerousAction(message: string) {
+    if (isTestBracket) {
+      return window.confirm(message);
+    }
+
+    const typed = window.prompt(`${message}\n\nType the tournament's name to confirm:\n${snapshot.title}`);
+    if (typed === null) {
+      return false;
+    }
+
+    if (typed.trim().toLowerCase() !== snapshot.title.trim().toLowerCase()) {
+      setError("The name you typed didn't match, so nothing was changed.");
+      return false;
+    }
+
+    return true;
+  }
+
+  async function runAdminAction(path: string, failureMessage: string) {
+    setError(null);
+    setAdminActionPending(true);
+    const outcome = await fetchJson<BracketSnapshot & { keptOffVoting?: boolean }>(`/api/admin/${adminToken}/${path}`, {
+      method: "POST",
+    });
+    setAdminActionPending(false);
+    if (!outcome.ok || !outcome.data) {
+      setError(outcome.ok ? failureMessage : `${failureMessage} ${outcome.error}`);
+      return null;
+    }
+
+    setSnapshot(outcome.data);
+    return outcome.data;
+  }
+
   async function restartNow() {
     if (!adminToken) {
       return;
     }
 
-    if (!window.confirm("Restart from round one? Every vote is cleared and everyone picks their name again.")) {
+    if (
+      !confirmDangerousAction(
+        "Restart from round one? Every vote is cleared and everyone picks their name again. You can undo this from Settings.",
+      )
+    ) {
       return;
     }
 
-    setError(null);
-    const response = await fetch(`/api/admin/${adminToken}/restart`, { method: "POST" });
-    const result = (await response.json()) as BracketSnapshot & { error?: string };
-    if (!response.ok) {
-      setError(result.error ?? "Could not restart the bracket.");
+    await runAdminAction("restart", "Could not restart the tournament.");
+  }
+
+  async function undoNow(undo: { action: "restart" | "shutdown"; at: string }) {
+    if (!adminToken) {
       return;
     }
 
-    setSnapshot(result);
+    const what = undo.action === "restart" ? "restart" : "shut down";
+    if (
+      !window.confirm(
+        `Undo the ${what} from ${formatEasternDateTime(undo.at)}? The tournament goes back exactly as it was then. Any votes or name picks since then are lost.`,
+      )
+    ) {
+      return;
+    }
+
+    const result = await runAdminAction("undo", `Could not undo the ${what}.`);
+    if (result?.keptOffVoting) {
+      setError("Undone. Another tournament is on /voting now, so this one was left off it. Use Put on /voting if you want it back.");
+    }
   }
 
   async function resetVoterBindingsNow() {
@@ -791,6 +906,12 @@ export function BracketClient(props: BracketClientProps) {
     : [];
 
   const workspaceStatus = adminTournamentStatus(snapshot);
+
+  // The server has confirmed a name for this device. Switching is refused
+  // there (and logged in Vote Watch as an attempt), so the pop-up only
+  // explains the lock instead of offering other names.
+  const hasConfirmedName =
+    mode === "public" && isPublicSnapshot(snapshot) && Boolean(snapshot.selectedRosterMemberName) && identityReady;
 
   const voteWatchAlertCount = isPublicSnapshot(snapshot)
     ? 0
@@ -866,20 +987,12 @@ export function BracketClient(props: BracketClientProps) {
 
     const confirmation = isTestBracket
       ? "Discard this test bracket? It will stay out of public voting and Past Tournaments."
-      : "Are you sure you want to shut down this bracket and disable the public link?";
-    if (!window.confirm(confirmation)) {
+      : "Shut down this tournament? Voting stops and it comes off /voting. You can undo this from Settings.";
+    if (!confirmDangerousAction(confirmation)) {
       return;
     }
 
-    setError(null);
-    const response = await fetch(`/api/admin/${adminToken}/shutdown`, { method: "POST" });
-    const result = (await response.json()) as BracketSnapshot & { error?: string };
-    if (!response.ok) {
-      setError(result.error ?? "Could not shut down the bracket.");
-      return;
-    }
-
-    setSnapshot(result);
+    await runAdminAction("shutdown", "Could not shut down the tournament.");
   }
 
   async function clearVote(matchupId: string, rosterMemberId: string, rosterMemberName: string) {
@@ -1660,6 +1773,31 @@ export function BracketClient(props: BracketClientProps) {
             </div>
           ) : null}
 
+          {adminSnapshot.undo ? (
+            <div className="bw-danger-card">
+              <div className="bw-danger-card-header">
+                <div>
+                  <div className="bw-danger-card-title">
+                    Undo the {adminSnapshot.undo.action === "restart" ? "restart" : "shut down"}
+                  </div>
+                  <div className="bw-danger-card-desc">
+                    {adminSnapshot.undo.action === "restart" ? "Restarted" : "Shut down"}{" "}
+                    {formatEasternDateTime(adminSnapshot.undo.at)}. Undo puts the tournament back exactly as it was
+                    then; votes and name picks since then are lost.
+                  </div>
+                </div>
+                <button
+                  className="bw-btn bw-btn-outline"
+                  disabled={adminActionPending}
+                  onClick={() => void undoNow(adminSnapshot.undo!)}
+                  type="button"
+                >
+                  Undo
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {!isShutDown ? (
             <>
               <div className="bw-card-title bw-settings-danger-title">Danger</div>
@@ -1679,6 +1817,7 @@ export function BracketClient(props: BracketClientProps) {
                 </div>
               </div>
               ) : null}
+              {adminSnapshot.status !== "completed" || isTestBracket ? (
               <div className="bw-danger-card">
                 <div className="bw-danger-card-header">
                   <div>
@@ -1687,11 +1826,17 @@ export function BracketClient(props: BracketClientProps) {
                       Clears every vote and starts again from round one on a fresh schedule.
                     </div>
                   </div>
-                  <button className="bw-btn bw-btn-danger" onClick={restartNow} type="button">
+                  <button
+                    className="bw-btn bw-btn-danger"
+                    disabled={adminActionPending}
+                    onClick={() => void restartNow()}
+                    type="button"
+                  >
                     Restart
                   </button>
                 </div>
               </div>
+              ) : null}
               <div className="bw-danger-card">
                 <div className="bw-danger-card-header">
                   <div>
@@ -1699,10 +1844,15 @@ export function BracketClient(props: BracketClientProps) {
                     <div className="bw-danger-card-desc">
                       {isTestBracket
                         ? "Turns the test off and keeps it out of history."
-                        : "Stops voting for good and takes it off /voting. This can't be undone."}
+                        : "Stops voting and takes it off /voting. You can undo it from here afterwards."}
                     </div>
                   </div>
-                  <button className="bw-btn bw-btn-danger-solid" onClick={shutDownNow} type="button">
+                  <button
+                    className="bw-btn bw-btn-danger-solid"
+                    disabled={adminActionPending}
+                    onClick={() => void shutDownNow()}
+                    type="button"
+                  >
                     {isTestBracket ? "Discard" : "Shut down"}
                   </button>
                 </div>
@@ -1917,16 +2067,53 @@ export function BracketClient(props: BracketClientProps) {
   return (
     <div className="bw-vote-app">
       {mode === "public" && identityPickerOpen ? (
-        <div className="bw-modal-backdrop" role="presentation">
+        <div
+          className="bw-modal-backdrop"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setIdentityPickerOpen(false);
+            }
+          }}
+          role="presentation"
+        >
           <section
             aria-labelledby="identity-modal-title"
             aria-modal="true"
             className="bw-modal"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setIdentityPickerOpen(false);
+              }
+            }}
             role="dialog"
           >
-            <div className="bw-modal-title" id="identity-modal-title">
-              Who are you?
+            <div className="bw-modal-head">
+              <div className="bw-modal-title" id="identity-modal-title">
+                {hasConfirmedName ? "You're voting as" : "Who are you?"}
+              </div>
+              <button
+                aria-label="Close"
+                autoFocus
+                className="bw-modal-close"
+                onClick={() => setIdentityPickerOpen(false)}
+                type="button"
+              >
+                ×
+              </button>
             </div>
+            {hasConfirmedName ? (
+              <>
+                <p className="bw-modal-name">{selectedRosterMemberDisplayName}</p>
+                <p className="bw-modal-sub">
+                  Your name is locked to this device so nobody can vote twice. If this isn&apos;t you, ask the
+                  organiser to free the name, then pick yours.
+                </p>
+                <button className="bw-btn bw-btn-lime" onClick={() => setIdentityPickerOpen(false)} type="button">
+                  Back to voting
+                </button>
+              </>
+            ) : (
+              <>
             <p className="bw-modal-sub">
               Pick your name to cast your vote. Each name works on one device, and names already picked on
               another device are hidden.
@@ -1953,6 +2140,8 @@ export function BracketClient(props: BracketClientProps) {
             <p className="bw-modal-footnote">
               Name missing? It may be in use on another device. Ask the organiser to free it up.
             </p>
+              </>
+            )}
           </section>
         </div>
       ) : null}

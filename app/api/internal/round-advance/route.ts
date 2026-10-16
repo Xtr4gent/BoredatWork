@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 
 import { advanceReadyBrackets } from "@/lib/workquiz/bracket";
 import { INTERNAL_SCHEDULER_HEADER } from "@/lib/workquiz/constants";
+import { readSecret } from "@/lib/workquiz/secrets";
 
 export async function POST(request: Request) {
-  const expected = process.env.WORKQUIZ_CRON_SECRET ?? "dev-cron-secret";
+  const expected = readSecret("WORKQUIZ_CRON_SECRET");
   const actual = request.headers.get(INTERNAL_SCHEDULER_HEADER);
 
   if (actual !== expected) {
