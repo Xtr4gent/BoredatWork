@@ -2252,6 +2252,71 @@ button {
   white-space: nowrap;
 }
 
+.bw-roster-chip.away {
+  opacity: 0.55;
+}
+
+.bw-availability-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.bw-availability-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(200, 245, 60, 0.25);
+  border-radius: 10px;
+  background: rgba(200, 245, 60, 0.05);
+  color: var(--bw-white);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.bw-availability-btn.away {
+  border-color: var(--bw-border);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--bw-muted);
+}
+
+.bw-availability-btn:disabled {
+  cursor: wait;
+}
+
+.bw-availability-btn:focus-visible {
+  outline: 2px solid var(--bw-lime);
+  outline-offset: 2px;
+}
+
+.bw-availability-dot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--bw-lime);
+}
+
+.bw-availability-btn.away .bw-availability-dot {
+  background: transparent;
+  border: 2px solid var(--bw-muted);
+}
+
+.bw-away-note {
+  margin: 0 0 18px;
+  border: 1px solid rgba(245, 200, 66, 0.3);
+  border-radius: 12px;
+  background: rgba(245, 200, 66, 0.08);
+  color: var(--bw-gold);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 12px 16px;
+}
+
 .bw-chip-status {
   flex-shrink: 0;
   font-size: 11px;

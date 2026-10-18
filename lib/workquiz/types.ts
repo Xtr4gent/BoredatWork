@@ -21,6 +21,12 @@ export interface EntrantRecord {
 export interface RosterMemberRecord {
   id: string;
   name: string;
+  /**
+   * Set by the admin when this person is not at work: they can't vote and
+   * don't count towards turnout. Votes they already cast still count. Stays
+   * until the admin switches it back.
+   */
+  away?: boolean;
 }
 
 /**
@@ -42,7 +48,9 @@ export type VoterEventType =
   | "reclaim"
   | "release"
   | "reset_all"
-  | "undo";
+  | "undo"
+  | "away"
+  | "back";
 
 export interface VoterEventRecord {
   id: string;
@@ -196,6 +204,7 @@ export interface BracketSnapshotEntrant {
 export interface BracketSnapshotRosterMember {
   id: string;
   name: string;
+  away?: boolean;
 }
 
 export interface BracketSnapshotVoteState {
@@ -215,6 +224,7 @@ export interface BracketSnapshotRosterStatus {
   rosterMemberId: string;
   name: string;
   hasVoted: boolean;
+  away: boolean;
 }
 
 export interface BracketSnapshotMatchup {
@@ -255,6 +265,8 @@ export interface BracketSnapshot {
   createdAt: string;
   publishedAt: string;
   totalPlayers: number;
+  /** People who count towards turnout: not away, or away but already voted this round. */
+  eligiblePlayers: number;
   roundDurationHours: number;
   entrants: BracketSnapshotEntrant[];
   rosterMembers: BracketSnapshotRosterMember[];
@@ -363,6 +375,8 @@ export interface PublicBracketSnapshot {
   createdAt: string;
   publishedAt: string;
   totalPlayers: number;
+  /** People who count towards turnout: not away, or away but already voted this round. */
+  eligiblePlayers: number;
   roundDurationHours: number;
   entrants: PublicBracketSnapshotEntrant[];
   rosterMembers: PublicBracketSnapshotRosterMember[];
@@ -371,5 +385,7 @@ export interface PublicBracketSnapshot {
   currentRoundUniqueVoters: number;
   totalVotes: number;
   selectedRosterMemberName: string | null;
+  /** The viewer's own name is switched off by the admin (not at work). */
+  selectedRosterMemberAway: boolean;
   currentRoundRosterStatuses: PublicBracketSnapshotRosterStatus[];
 }

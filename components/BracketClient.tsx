@@ -161,6 +161,8 @@ const voterEventLabel: Record<VoterEventType, string> = {
   release: "Name freed by admin",
   reset_all: "All names reset",
   undo: "Admin undo",
+  away: "Voting switched off (away)",
+  back: "Voting switched back on",
 };
 
 const easternFormatter = new Intl.DateTimeFormat("en-US", {
@@ -686,8 +688,11 @@ export function BracketClient(props: BracketClientProps) {
   const activeMatchups = currentRound?.matchups.filter((matchup) => matchup.status === "live") ?? [];
   const tieBreakerMatchups =
     currentRound?.matchups.filter((matchup) => matchup.status === "needs_tiebreaker") ?? [];
-  const turnout = percent(snapshot.currentRoundUniqueVoters, snapshot.totalPlayers);
-  const pendingRosterCount = Math.max(snapshot.totalPlayers - snapshot.currentRoundUniqueVoters, 0);
+  // Turnout counts only people who can vote today (not marked away), plus
+  // anyone away who already voted.
+  const eligiblePlayers = snapshot.eligiblePlayers ?? snapshot.totalPlayers;
+  const turnout = percent(snapshot.currentRoundUniqueVoters, eligiblePlayers);
+  const pendingRosterCount = Math.max(eligiblePlayers - snapshot.currentRoundUniqueVoters, 0);
   const champion = championName(snapshot);
   const isTestBracket = snapshot.kind === "test";
   const rosterInspectorStatuses = !isPublicSnapshot(snapshot)
@@ -697,6 +702,7 @@ export function BracketClient(props: BracketClientProps) {
           rosterMemberId: member.id,
           name: member.name,
           hasVoted: false,
+          away: Boolean(member.away),
         }))
     : [];
 
@@ -852,11 +858,14 @@ export function BracketClient(props: BracketClientProps) {
     return true;
   }
 
-  async function runAdminAction(path: string, failureMessage: string) {
+  async function runAdminAction(path: string, failureMessage: string, body?: unknown) {
     setError(null);
     setAdminActionPending(true);
     const outcome = await fetchJson<BracketSnapshot & { keptOffVoting?: boolean }>(`/api/admin/${adminToken}/${path}`, {
       method: "POST",
+      ...(body === undefined
+        ? {}
+        : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
     });
     setAdminActionPending(false);
     if (!outcome.ok || !outcome.data) {
@@ -866,6 +875,18 @@ export function BracketClient(props: BracketClientProps) {
 
     setSnapshot(outcome.data);
     return outcome.data;
+  }
+
+  async function setAvailabilityNow(target: { rosterMemberId: string } | "everyone", away: boolean) {
+    if (!adminToken) {
+      return;
+    }
+
+    await runAdminAction(
+      "roster/availability",
+      "Could not change who can vote.",
+      target === "everyone" ? { everyone: true, away } : { rosterMemberId: target.rosterMemberId, away },
+    );
   }
 
   async function restartNow() {
@@ -1125,9 +1146,12 @@ export function BracketClient(props: BracketClientProps) {
     const pendingSide = pendingVotes[matchup.slot];
     const votedSide = pendingSide ?? matchup.voteState.votedSide;
     const canVote = !pendingSide && matchup.voteState.canVote;
+    // Someone switched off as away keeps results hidden like everyone else
+    // who hasn't voted, so being switched back on later is still a fair vote.
+    const viewerAway = isPublicSnapshot(snapshot) && snapshot.selectedRosterMemberAway;
     const canSeeVoteCounts =
       matchup.status !== "live" ||
-      !canVote ||
+      (!canVote && !viewerAway) ||
       Boolean(votedSide);
     const votePctA = percent(matchup.votesA, matchup.totalVotes);
     const votePctB = percent(matchup.votesB, matchup.totalVotes);
@@ -1176,7 +1200,7 @@ export function BracketClient(props: BracketClientProps) {
                 {renderEntrantImage(entrant, "bw-vote-card-media")}
                 <span className="bw-vote-card-name">{entrantLabel(entrant)}</span>
                 <span className="bw-vote-card-hint">
-                  {votedSide ? "" : "Tap to vote"}
+                  {votedSide ? "" : viewerAway ? "Voting off" : "Tap to vote"}
                 </span>
               </button>
             );
@@ -1255,10 +1279,12 @@ export function BracketClient(props: BracketClientProps) {
                       )
                     : adminMatchup.winnerEntrantId &&
                       adminMatchup.entrantB?.id === adminMatchup.winnerEntrantId;
+                  // Away voters keep scores hidden here too (see renderPublicVote).
                   const canSeeVoteCounts =
                     mode !== "public" ||
                     matchup.status !== "live" ||
-                    !matchup.voteState.canVote ||
+                    (!matchup.voteState.canVote &&
+                      !(isPublicSnapshot(snapshot) && snapshot.selectedRosterMemberAway)) ||
                     Boolean(
                       publicView
                         ? publicMatchup.voteState.votedSide
@@ -1537,25 +1563,80 @@ export function BracketClient(props: BracketClientProps) {
     }
 
     if (adminSection === "roster") {
+      const awayCount = rosterInspectorStatuses.filter((member) => member.away).length;
       return (
         <section className="bw-section-panel active">
           <div className="bw-panel-title">Players</div>
           <p className="bw-panel-sub">
-            {currentRound?.label ?? "Current round"} · {snapshot.currentRoundUniqueVoters} of {snapshot.totalPlayers}{" "}
+            {currentRound?.label ?? "Current round"} · {snapshot.currentRoundUniqueVoters} of {eligiblePlayers}{" "}
             finished voting. Pick a person to see their name, their votes, and fix problems.
           </p>
+          {adminSnapshot.status === "live" ? (
+            <div className="bw-card">
+              <div className="bw-card-header-row">
+                <div>
+                  <div className="bw-card-title">Who can vote</div>
+                  <p className="bw-muted">
+                    Switch off anyone who isn&apos;t at work so turnout only counts the people who can vote. They
+                    stay switched off until you switch them back on. Votes already cast always count.
+                  </p>
+                </div>
+                <div className="bw-tag-row">
+                  <span className="bw-tag bw-tag-lime">{rosterInspectorStatuses.length - awayCount} can vote</span>
+                  {awayCount ? <span className="bw-tag bw-tag-muted">{awayCount} away</span> : null}
+                </div>
+              </div>
+              <div className="bw-availability-list">
+                {rosterInspectorStatuses.map((member) => (
+                  <button
+                    aria-pressed={!member.away}
+                    className={`bw-availability-btn ${member.away ? "away" : "here"}`}
+                    disabled={adminActionPending}
+                    key={member.rosterMemberId}
+                    onClick={() => void setAvailabilityNow({ rosterMemberId: member.rosterMemberId }, !member.away)}
+                    title={member.away ? `Switch voting back on for ${member.name}` : `Mark ${member.name} away`}
+                    type="button"
+                  >
+                    <span className="bw-availability-dot" aria-hidden="true" />
+                    <span className="bw-chip-name">{member.name}</span>
+                    <span className="bw-chip-status">{member.away ? "Away" : "Can vote"}</span>
+                  </button>
+                ))}
+              </div>
+              {awayCount ? (
+                <div className="bw-btn-row">
+                  <button
+                    className="bw-btn bw-btn-outline"
+                    disabled={adminActionPending}
+                    onClick={() => void setAvailabilityNow("everyone", false)}
+                    type="button"
+                  >
+                    Everyone can vote
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="bw-card">
             <div className="bw-card-header-row">
               <div className="bw-card-title">Who has voted</div>
               <div className="bw-tag-row">
                 <span className="bw-tag bw-tag-lime">{snapshot.currentRoundUniqueVoters} voted</span>
                 <span className="bw-tag bw-tag-coral">{pendingRosterCount} pending</span>
+                {rosterInspectorStatuses.some((member) => member.away && !member.hasVoted) ? (
+                  <span className="bw-tag bw-tag-muted">
+                    {rosterInspectorStatuses.filter((member) => member.away && !member.hasVoted).length} away
+                  </span>
+                ) : null}
               </div>
             </div>
             <div className="bw-roster-grid">
               {rosterInspectorStatuses.map((member) => (
                 <button
-                  className={`bw-roster-chip bw-roster-chip-btn ${member.hasVoted ? "voted" : "pending"} ${
+                  className={`bw-roster-chip bw-roster-chip-btn ${
+                    member.hasVoted ? "voted" : member.away ? "away" : "pending"
+                  } ${
                     activeInspectedRosterMemberId === member.rosterMemberId ? "selected" : ""
                   }`}
                   key={member.rosterMemberId}
@@ -1567,7 +1648,7 @@ export function BracketClient(props: BracketClientProps) {
                   </span>
                   <span className="bw-chip-name">{member.name}</span>
                   <span className={`bw-chip-status ${member.hasVoted ? "done" : "waiting"}`}>
-                    {member.hasVoted ? "Voted" : "Pending"}
+                    {member.hasVoted ? "Voted" : member.away ? "Away" : "Pending"}
                   </span>
                 </button>
               ))}
@@ -2197,7 +2278,7 @@ export function BracketClient(props: BracketClientProps) {
           </div>
           <h1 className="bw-topic-title">{snapshot.title}</h1>
           <p className="bw-topic-meta">
-            {snapshot.entrants.length} contenders · {snapshot.currentRoundUniqueVoters} / {snapshot.totalPlayers} voted
+            {snapshot.entrants.length} contenders · {snapshot.currentRoundUniqueVoters} / {eligiblePlayers} voted
           </p>
           <p className="bw-topic-meta" suppressHydrationWarning>
             {hydrated ? currentRoundBanner.body : "Syncing round timing..."}
@@ -2205,6 +2286,12 @@ export function BracketClient(props: BracketClientProps) {
         </header>
 
         {error ? <p className="bw-error-text">{error}</p> : null}
+        {isPublicSnapshot(snapshot) && snapshot.selectedRosterMemberAway ? (
+          <p className="bw-away-note" role="status">
+            You&apos;re marked as away, so voting is switched off for you right now. If you&apos;re around and want to
+            vote, ask the organiser to switch you back on.
+          </p>
+        ) : null}
 
         {activeMatchups.length ? (
           activeMatchups.map((matchup) => renderPublicVote(matchup as PublicBracketSnapshotMatchup))

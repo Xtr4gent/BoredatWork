@@ -1102,6 +1102,10 @@ export async function castVote(params: {
       throw new Error("Choose your name before voting.");
     }
 
+    if (bracket.rosterMembers.find((member) => member.id === rosterMemberId)?.away) {
+      throw new Error(AWAY_VOTE_MESSAGE);
+    }
+
     advanceBracket(bracket, new Date());
     const liveRound = bracket.rounds.find((round) => round.status === "live");
     if (!liveRound) {
@@ -1286,6 +1290,61 @@ export function undoLastAction(store: StoreShape, bracket: BracketRecord) {
   });
 
   return { action, keptOffVoting };
+}
+
+export const AWAY_VOTE_MESSAGE =
+  "Voting is switched off for you right now because you're marked as away. Ask the organiser to switch it back on.";
+
+/**
+ * Turnout counts everyone who can vote, plus anyone marked away who already
+ * finished voting this round (their votes count, so they do too).
+ */
+function countEligibleVoters(bracket: BracketRecord, statuses: BracketSnapshotRosterStatus[]) {
+  if (!statuses.length) {
+    return bracket.rosterMembers.filter((member) => !member.away).length;
+  }
+
+  return statuses.filter((status) => !status.away || status.hasVoted).length;
+}
+
+/**
+ * Switches voting off ("away", e.g. not at work) or back on for the given
+ * players, or for everyone. Votes already cast are kept. Returns how many
+ * players actually changed.
+ */
+export function setRosterAvailability(
+  bracket: BracketRecord,
+  target: { rosterMemberIds: string[] } | "everyone",
+  away: boolean,
+) {
+  const ids =
+    target === "everyone" ? bracket.rosterMembers.map((member) => member.id) : target.rosterMemberIds;
+  let changed = 0;
+  for (const id of ids) {
+    const member = bracket.rosterMembers.find((entry) => entry.id === id);
+    if (!member) {
+      throw new Error("Roster member not found.");
+    }
+
+    if (Boolean(member.away) === away) {
+      continue;
+    }
+
+    if (away) {
+      member.away = true;
+    } else {
+      delete member.away;
+    }
+    changed += 1;
+    recordVoterEvent(bracket, {
+      type: away ? "away" : "back",
+      rosterMemberId: member.id,
+      client: null,
+      note: away ? "Admin switched voting off (away)" : "Admin switched voting back on",
+    });
+  }
+
+  return changed;
 }
 
 export function clearVoterBindings(bracket: BracketRecord) {
@@ -1610,6 +1669,7 @@ export function buildSnapshot(
           rosterMemberId: member.id,
           name: member.name,
           hasVoted,
+          away: Boolean(member.away),
         };
       })
     : [];
@@ -1680,6 +1740,7 @@ export function buildSnapshot(
     createdAt: bracket.createdAt,
     publishedAt: bracket.publishedAt,
     totalPlayers: bracket.totalPlayers ?? bracket.entrants.length,
+    eligiblePlayers: countEligibleVoters(bracket, currentRoundRosterStatuses),
     roundDurationHours: bracket.roundDurationHours,
     entrants: bracket.entrants,
     rosterMembers: bracket.rosterMembers,
@@ -1715,6 +1776,9 @@ export function buildPublicSnapshot(
   const equivalentRosterIds = rosterMemberId
     ? (rosterAliases.get(rosterMemberId) ?? new Set([rosterMemberId]))
     : null;
+  const viewerAway = Boolean(
+    rosterMemberId && bracket.rosterMembers.find((member) => member.id === rosterMemberId)?.away,
+  );
 
   const currentRoundRecord =
     bracket.rounds.find((round) => round.status === "live") ??
@@ -1723,6 +1787,7 @@ export function buildPublicSnapshot(
     null;
   const currentRoundVotingMatchups =
     currentRoundRecord?.matchups.filter((matchup) => matchup.entrantAId && matchup.entrantBId) ?? [];
+  let awayNotVoted = 0;
   const currentRoundRosterStatuses: PublicBracketSnapshotRosterStatus[] = currentRoundRecord
     ? bracket.rosterMembers.map((member) => {
         const memberEquivalentIds = rosterAliases.get(member.id) ?? new Set([member.id]);
@@ -1731,6 +1796,10 @@ export function buildPublicSnapshot(
           currentRoundVotingMatchups.every((matchup) =>
             matchup.votes.some((vote) => memberEquivalentIds.has(vote.rosterMemberId)),
           );
+
+        if (member.away && !hasVoted) {
+          awayNotVoted += 1;
+        }
 
         return {
           name: member.name,
@@ -1778,7 +1847,7 @@ export function buildPublicSnapshot(
         votesB,
         totalVotes: votesA + votesB,
         voteState: {
-          canVote: round.status === "live" && matchup.status === "live" && !voted,
+          canVote: round.status === "live" && matchup.status === "live" && !voted && !viewerAway,
           votedSide,
         },
       };
@@ -1803,6 +1872,9 @@ export function buildPublicSnapshot(
     createdAt: bracket.createdAt,
     publishedAt: bracket.publishedAt,
     totalPlayers: bracket.totalPlayers ?? bracket.entrants.length,
+    eligiblePlayers: currentRoundRecord
+      ? bracket.rosterMembers.length - awayNotVoted
+      : bracket.rosterMembers.filter((member) => !member.away).length,
     roundDurationHours: bracket.roundDurationHours,
     entrants: bracket.entrants.map((entrant) => ({
       name: entrant.name,
@@ -1819,6 +1891,7 @@ export function buildPublicSnapshot(
     currentRoundUniqueVoters,
     totalVotes,
     selectedRosterMemberName: rosterMemberName,
+    selectedRosterMemberAway: viewerAway,
     currentRoundRosterStatuses,
   };
 }
