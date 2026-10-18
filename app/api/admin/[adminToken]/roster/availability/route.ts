@@ -15,18 +15,15 @@ export async function POST(
   context: { params: Promise<{ adminToken: string }> },
 ) {
   const { adminToken } = await context.params;
-  const body = (await request.json().catch(() => ({}))) as {
-    rosterMemberId?: string;
-    everyone?: boolean;
-    away?: boolean;
-  };
+  const parsed: unknown = await request.json().catch(() => null);
+  const body = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
 
   if (typeof body.away !== "boolean") {
     return NextResponse.json({ error: "away (true or false) is required." }, { status: 400 });
   }
 
-  const rosterMemberId = body.rosterMemberId?.trim();
-  if (!body.everyone && !rosterMemberId) {
+  const rosterMemberId = typeof body.rosterMemberId === "string" ? body.rosterMemberId.trim() : "";
+  if (body.everyone !== true && !rosterMemberId) {
     return NextResponse.json({ error: "rosterMemberId or everyone is required." }, { status: 400 });
   }
 
@@ -40,7 +37,11 @@ export async function POST(
 
     found = true;
     try {
-      setRosterAvailability(mutable, body.everyone ? "everyone" : { rosterMemberIds: [rosterMemberId!] }, body.away!);
+      setRosterAvailability(
+        mutable,
+        body.everyone === true ? "everyone" : { rosterMemberIds: [rosterMemberId] },
+        body.away as boolean,
+      );
     } catch (error) {
       refusal = error instanceof Error ? error.message : "Could not change who can vote.";
     }

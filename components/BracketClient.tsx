@@ -1279,10 +1279,12 @@ export function BracketClient(props: BracketClientProps) {
                       )
                     : adminMatchup.winnerEntrantId &&
                       adminMatchup.entrantB?.id === adminMatchup.winnerEntrantId;
+                  // Away voters keep scores hidden here too (see renderPublicVote).
                   const canSeeVoteCounts =
                     mode !== "public" ||
                     matchup.status !== "live" ||
-                    !matchup.voteState.canVote ||
+                    (!matchup.voteState.canVote &&
+                      !(isPublicSnapshot(snapshot) && snapshot.selectedRosterMemberAway)) ||
                     Boolean(
                       publicView
                         ? publicMatchup.voteState.votedSide

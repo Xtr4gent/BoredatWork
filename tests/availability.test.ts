@@ -137,6 +137,12 @@ test("the availability route rejects bad requests", async () => {
   assert.equal((await setAway(bracket.id, { rosterMemberId: memberId(bracket, "Sam") })).status, 400, "no away flag");
   assert.equal((await setAway(bracket.id, { away: true })).status, 400, "nobody named");
   assert.equal((await setAway(bracket.id, { rosterMemberId: "nobody", away: true })).status, 400);
+  assert.equal((await setAway(bracket.id, { rosterMemberId: 123, away: true })).status, 400, "id must be a string");
+  const nullBody = await availabilityRoute(
+    new Request("https://example.test/x", { method: "POST", body: "null" }),
+    { params: Promise.resolve({ adminToken: bracket.id }) },
+  );
+  assert.equal(nullBody.status, 400, "a JSON null body is a 400, not a crash");
   const missing = await availabilityRoute(
     new Request("https://example.test/x", { method: "POST", body: JSON.stringify({ everyone: true, away: false }) }),
     { params: Promise.resolve({ adminToken: "not-a-tournament" }) },
