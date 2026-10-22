@@ -183,6 +183,22 @@ export function buildVoteWatch(bracket: BracketRecord): VoteWatchSnapshot {
     }
   }
 
+  // Several browser cookies but one machine: every known device hint,
+  // network and browser type matches. (A remembered-name recovery records no
+  // device hint, so unknown values are skipped rather than counted as new.)
+  const looksLikeOnePc = (mine: Observation[]) => {
+    if (new Set(mine.map((observation) => observation.client.browserId)).size < 2) {
+      return false;
+    }
+
+    const distinctKnown = (pick: (observation: Observation) => string | null) =>
+      new Set(mine.map(pick).filter((value): value is string => Boolean(value)));
+    const devices = distinctKnown((observation) => observation.client.device);
+    const networks = distinctKnown((observation) => observation.client.network);
+    const agents = distinctKnown((observation) => observation.client.agent);
+    return devices.size === 1 && networks.size === 1 && agents.size <= 1;
+  };
+
   const severityOrder = { high: 0, medium: 1, low: 2 } as const;
   flags.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
@@ -214,6 +230,7 @@ export function buildVoteWatch(bracket: BracketRecord): VoteWatchSnapshot {
       agent: latest?.client.agent ?? null,
       votesCast,
       browsersUsed: new Set(mine.map((observation) => observation.client.browserId)).size,
+      browsersLookLikeOnePc: looksLikeOnePc(mine),
     };
   });
 

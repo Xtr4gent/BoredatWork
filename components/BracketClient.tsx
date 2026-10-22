@@ -103,6 +103,8 @@ function voteRequestHeaders() {
 
 const CONNECTION_ERROR = "Couldn't reach the server. Check your connection and try again.";
 const REFRESH_RETRY_MS = 5000;
+const DEADLINE_RETRY_MS = 15 * 1000;
+const DEADLINE_RETRY_WINDOW_MS = 3 * 60 * 1000;
 
 type JsonResult<T> =
   | { ok: true; response: Response; data: T }
@@ -252,7 +254,9 @@ function renderEntrantImage(
       aria-label={`${entrant.name} option image`}
       className={className}
       role="img"
-      style={{ backgroundImage: `url(${entrant.imageUrl})` }}
+      // Quoted: Wikimedia file names often contain brackets, which end an
+      // unquoted url() early and the picture silently disappears.
+      style={{ backgroundImage: `url(${JSON.stringify(entrant.imageUrl)})` }}
     />
   );
 }
@@ -572,7 +576,7 @@ export function BracketClient(props: BracketClientProps) {
     };
   }, [mode]);
 
-  const handledDeadlineRef = useRef<string | null>(null);
+  const handledDeadlineRef = useRef<{ key: string; firstAt: number; lastAt: number } | null>(null);
 
   useEffect(() => {
     if (!currentRound) {
@@ -586,18 +590,32 @@ export function BracketClient(props: BracketClientProps) {
       return;
     }
 
-    // Refresh once per crossed deadline. Without this guard the 1s countdown
-    // tick refetched the snapshot every second for as long as a deadline sat
-    // in the past (e.g. waiting on a tie-breaker).
+    // Refresh when a deadline passes. If the round still hasn't moved on (this
+    // device's clock runs ahead of the server's, or the push update was
+    // missed), try again every 15 s for up to 3 minutes rather than sitting on
+    // "less than a minute" with cards that no longer accept votes. A
+    // tie-breaker waits on the admin, so it gets the single refresh only.
+    // Without some limit the 1 s countdown tick would refetch every second.
     const roundKey = isPublicSnapshot(snapshot)
       ? currentRound.number
       : (currentRound as BracketSnapshotRound).id;
     const deadlineKey = `${roundKey}:${currentRound.status}:${deadlineIso}`;
-    if (handledDeadlineRef.current === deadlineKey) {
+    const handled = handledDeadlineRef.current;
+    if (handled?.key === deadlineKey) {
+      const canRetry =
+        currentRound.status !== "tiebreaker" &&
+        nowTick - handled.lastAt >= DEADLINE_RETRY_MS &&
+        nowTick - handled.firstAt <= DEADLINE_RETRY_WINDOW_MS;
+      if (!canRetry) {
+        return;
+      }
+
+      handled.lastAt = nowTick;
+      void refresh();
       return;
     }
 
-    handledDeadlineRef.current = deadlineKey;
+    handledDeadlineRef.current = { key: deadlineKey, firstAt: nowTick, lastAt: nowTick };
     void refresh();
   }, [currentRound, nowTick]);
 
@@ -1149,10 +1167,8 @@ export function BracketClient(props: BracketClientProps) {
     // Someone switched off as away keeps results hidden like everyone else
     // who hasn't voted, so being switched back on later is still a fair vote.
     const viewerAway = isPublicSnapshot(snapshot) && snapshot.selectedRosterMemberAway;
-    const canSeeVoteCounts =
-      matchup.status !== "live" ||
-      (!canVote && !viewerAway) ||
-      Boolean(votedSide);
+    // The server withholds the split until this viewer has voted (countsHidden).
+    const canSeeVoteCounts = !matchup.countsHidden;
     const votePctA = percent(matchup.votesA, matchup.totalVotes);
     const votePctB = percent(matchup.votesB, matchup.totalVotes);
     const resultBarAClassName = resultBarClassName(
@@ -1279,17 +1295,9 @@ export function BracketClient(props: BracketClientProps) {
                       )
                     : adminMatchup.winnerEntrantId &&
                       adminMatchup.entrantB?.id === adminMatchup.winnerEntrantId;
-                  // Away voters keep scores hidden here too (see renderPublicVote).
-                  const canSeeVoteCounts =
-                    mode !== "public" ||
-                    matchup.status !== "live" ||
-                    (!matchup.voteState.canVote &&
-                      !(isPublicSnapshot(snapshot) && snapshot.selectedRosterMemberAway)) ||
-                    Boolean(
-                      publicView
-                        ? publicMatchup.voteState.votedSide
-                        : adminMatchup.voteState.votedEntrantId,
-                    );
+                  // Players see a live split only once they've voted in it; the
+                  // server withholds it until then (countsHidden).
+                  const canSeeVoteCounts = !publicView || !publicMatchup.countsHidden;
                   const matchupKey = publicView ? `slot-${matchup.slot}` : adminMatchup.id;
 
                   return (
@@ -1505,7 +1513,21 @@ export function BracketClient(props: BracketClientProps) {
                   <span role="cell">
                     <strong>{member.name}</strong>
                     {member.browsersUsed > 1 ? (
-                      <span className="bw-tag bw-tag-gold">{member.browsersUsed} browsers</span>
+                      member.browsersLookLikeOnePc ? (
+                        <span
+                          className="bw-tag bw-tag-muted"
+                          title="Same device details, network and browser each time: usually a cleared cookie on one PC."
+                        >
+                          New browser, same PC
+                        </span>
+                      ) : (
+                        <span
+                          className="bw-tag bw-tag-gold"
+                          title="Used from browsers with different device details or networks. Check the flags and activity below."
+                        >
+                          {member.browsersUsed} browsers
+                        </span>
+                      )
                     ) : null}
                   </span>
                   <span role="cell">

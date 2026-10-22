@@ -584,3 +584,34 @@ test("a browser that never registered does not get a claim cookie", async () => 
   assert.equal(boundBrowserNeedsClaimCookie(stored, "stranger", null), false);
   assert.equal(await ensureClaimForBoundBrowser({ publicToken: bracket.publicToken, browserToken: "stranger" }), null);
 });
+
+test("a cleared cookie on one PC reads as 'new browser, same PC', a second device does not", async () => {
+  const bracket = await newBracket();
+  const [gabe, alex] = bracket.rosterMembers;
+  // Gabe: day 1 cookie, then a recovery (no device hint) and votes from a new
+  // cookie on the same PC, the Staples case from 2026-10-17.
+  recordVoterEvent(bracket, { type: "claim", rosterMemberId: gabe.id, client: client({ browserId: "b-day1", device: "pc-1" }) });
+  recordVoterEvent(bracket, { type: "reclaim", rosterMemberId: gabe.id, client: client({ browserId: "b-day2" }) });
+  bracket.rounds[0].matchups[0].votes.push({
+    id: "v1",
+    rosterMemberId: gabe.id,
+    entrantId: bracket.rounds[0].matchups[0].entrantAId!,
+    createdAt: new Date().toISOString(),
+    client: client({ browserId: "b-day2", device: "pc-1" }),
+  });
+  // Alex: two cookies on different devices (phone and PC).
+  recordVoterEvent(bracket, { type: "claim", rosterMemberId: alex.id, client: client({ browserId: "b-pc", device: "pc-2" }) });
+  recordVoterEvent(bracket, {
+    type: "reclaim",
+    rosterMemberId: alex.id,
+    client: client({ browserId: "b-phone", device: "phone-1", agent: "Safari on iOS" }),
+  });
+
+  const members = buildVoteWatch(bracket).members;
+  const gabeRow = members.find((member) => member.rosterMemberId === gabe.id)!;
+  const alexRow = members.find((member) => member.rosterMemberId === alex.id)!;
+  assert.equal(gabeRow.browsersUsed, 2);
+  assert.equal(gabeRow.browsersLookLikeOnePc, true);
+  assert.equal(alexRow.browsersUsed, 2);
+  assert.equal(alexRow.browsersLookLikeOnePc, false);
+});

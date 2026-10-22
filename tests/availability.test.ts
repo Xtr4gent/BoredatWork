@@ -97,11 +97,12 @@ test("turnout counts only people who can vote, on the admin and public pages", a
   assert.equal(publicView.eligiblePlayers, 3);
   assert.equal(admin.totalPlayers, 4, "the roster itself is unchanged");
   assert.equal(admin.currentRoundRosterStatuses.find((member) => member.name === "Sam")?.away, true);
-  assert.deepEqual(
-    publicView.currentRoundRosterStatuses.find((member) => member.name === "Sam"),
-    { name: "Sam", hasVoted: false },
-    "the public page never says who is away",
+  assert.equal(
+    "currentRoundRosterStatuses" in publicView,
+    false,
+    "the public page lists nobody's voting status, so it can't say who is away",
   );
+  assert.equal(JSON.stringify(publicView).includes('"away"'), false);
 });
 
 test("someone marked away after voting still counts, and their votes stay", async () => {
@@ -148,4 +149,34 @@ test("the availability route rejects bad requests", async () => {
     { params: Promise.resolve({ adminToken: "not-a-tournament" }) },
   );
   assert.equal(missing.status, 404);
+});
+
+test("players can't read a live split before voting, even in the page data", async () => {
+  const bracket = await liveTournament();
+  const gabe = memberId(bracket, "Gabe");
+  const alex = memberId(bracket, "Alex");
+  await voteAll(bracket.publicToken, await bind(bracket.publicToken, gabe));
+  await castVote({
+    publicToken: bracket.publicToken,
+    browserToken: await bind(bracket.publicToken, alex),
+    matchupSlot: 1,
+    side: "B",
+  });
+  const stored = await current(bracket.id);
+
+  const notVoted = buildPublicSnapshot(stored, { rosterMemberId: memberId(bracket, "Sam") }).rounds[0].matchups[0];
+  assert.equal(notVoted.countsHidden, true);
+  assert.equal(notVoted.votesA, 0);
+  assert.equal(notVoted.votesB, 0);
+  assert.equal(notVoted.totalVotes, 2, "how many voted is fine to show; the split is not");
+
+  const anonymous = buildPublicSnapshot(stored).rounds[0].matchups[0];
+  assert.equal(anonymous.countsHidden, true, "no name picked = nothing revealed");
+
+  const voted = buildPublicSnapshot(stored, { rosterMemberId: alex }).rounds[0].matchups[0];
+  assert.equal(voted.countsHidden, false);
+  assert.deepEqual([voted.votesA, voted.votesB], [1, 1]);
+
+  const otherMatchup = buildPublicSnapshot(stored, { rosterMemberId: alex }).rounds[0].matchups[1];
+  assert.equal(otherMatchup.countsHidden, true, "Alex hasn't voted in matchup 2 yet");
 });
