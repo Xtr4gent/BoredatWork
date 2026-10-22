@@ -5,7 +5,8 @@ import next from "next";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { subscribe } from "./lib/workquiz/realtime";
-import { assertSecretsConfigured } from "./lib/workquiz/secrets";
+import { startRoundClock } from "./lib/workquiz/round-clock";
+import { assertSecretsConfigured, readSecret } from "./lib/workquiz/secrets";
 
 const port = Number(process.env.PORT ?? 3000);
 const dev = process.env.NODE_ENV !== "production";
@@ -91,6 +92,7 @@ async function main() {
 
   server.listen(port, "0.0.0.0", () => {
     console.log(`WorkQuiz ready on http://localhost:${port}`);
+    startRoundClock(port, readSecret("WORKQUIZ_CRON_SECRET"));
   });
 }
 

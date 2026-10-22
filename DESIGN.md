@@ -29,7 +29,7 @@ The `--bw-*` tokens below live on `.bw-vote-app, .bw-admin-app`. The landing pag
 | `--bw-card` / `--bw-card2` | `#18181f` / `#1e1e27` | Cards, inset rows |
 | `--bw-border` | `rgba(255,255,255,0.07)` | Hairline borders |
 | `--bw-white` | `#f0f0ee` | Primary text |
-| `--bw-muted` | `#555568` | Secondary text, neutral tags |
+| `--bw-muted` | `#8a8a98` | Secondary text, neutral tags (about 5.5:1 on cards; the old `#555568` was too faint to read) |
 | `--bw-lime` | `#c8f53c` | **The accent.** Primary action buttons (`.bw-btn-lime`), live / voted / positive state |
 | `--bw-coral` | `#ff5e3a` | Attention: pending, needs review, flags |
 | `--bw-gold` | `#f5c842` | Notable but not urgent: highlights, "hidden" name state, medium flags, countdowns |
@@ -41,6 +41,7 @@ Rules:
 - **Neutral status uses `.bw-tag-muted`.** A badge that is just a fact (e.g. "Visible", "Nothing suspicious") is muted, not lime.
 - **Coral asks for attention, red is destructive.** Never use red for something that is merely pending.
 - One accent colour per element; no gradients on new UI.
+- **Keyboard focus is a lime ring** (`outline: 2px solid var(--bw-lime)`, offset 3px) from one `:focus-visible` rule covering every button, link and field in `.bw-vote-app` / `.bw-admin-app`. Don't remove outlines on new controls.
 
 ## Components (existing classes to reuse)
 - Buttons: `.bw-btn` + `.bw-btn-lime` (primary), `.bw-btn-outline` (secondary), `.bw-btn-danger` / `.bw-btn-danger-solid` (destructive). Group with `.bw-btn-row`.

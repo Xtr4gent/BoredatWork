@@ -1832,6 +1832,9 @@ export function buildPublicSnapshot(
       const entrantA = matchup.entrantAId ? entrants.get(matchup.entrantAId) ?? null : null;
       const entrantB = matchup.entrantBId ? entrants.get(matchup.entrantBId) ?? null : null;
       const winnerEntrant = matchup.winnerEntrantId ? entrants.get(matchup.winnerEntrantId) ?? null : null;
+      // The page used to hide the split with CSS only, so anyone could read it
+      // in the browser's developer tools before voting. Withhold it here.
+      const countsHidden = matchup.status === "live" && !voted;
 
       return {
         slot: matchup.slot,
@@ -1843,9 +1846,10 @@ export function buildPublicSnapshot(
           ? { name: entrantB.name, seed: entrantB.seed, imageUrl: entrantB.imageUrl }
           : null,
         winnerName: winnerEntrant?.name ?? null,
-        votesA,
-        votesB,
+        votesA: countsHidden ? 0 : votesA,
+        votesB: countsHidden ? 0 : votesB,
         totalVotes: votesA + votesB,
+        countsHidden,
         voteState: {
           canVote: round.status === "live" && matchup.status === "live" && !voted && !viewerAway,
           votedSide,
@@ -1892,7 +1896,6 @@ export function buildPublicSnapshot(
     totalVotes,
     selectedRosterMemberName: rosterMemberName,
     selectedRosterMemberAway: viewerAway,
-    currentRoundRosterStatuses,
   };
 }
 

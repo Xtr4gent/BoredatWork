@@ -301,6 +301,12 @@ export interface VoteWatchMember {
   agent: string | null;
   votesCast: number;
   browsersUsed: number;
+  /**
+   * Every browser they used shows the same device details, network and
+   * browser type: almost always one PC whose cookie was cleared, not a
+   * second device.
+   */
+  browsersLookLikeOnePc: boolean;
 }
 
 export interface VoteWatchEvent {
@@ -343,9 +349,12 @@ export interface PublicBracketSnapshotMatchup {
   entrantA: PublicBracketSnapshotEntrant | null;
   entrantB: PublicBracketSnapshotEntrant | null;
   winnerName: string | null;
+  /** 0 while countsHidden: players only see the split after voting. */
   votesA: number;
   votesB: number;
   totalVotes: number;
+  /** Live matchup this viewer hasn't voted in: the per-side counts are withheld. */
+  countsHidden: boolean;
   voteState: PublicBracketSnapshotVoteState;
 }
 
@@ -387,5 +396,4 @@ export interface PublicBracketSnapshot {
   selectedRosterMemberName: string | null;
   /** The viewer's own name is switched off by the admin (not at work). */
   selectedRosterMemberAway: boolean;
-  currentRoundRosterStatuses: PublicBracketSnapshotRosterStatus[];
 }
