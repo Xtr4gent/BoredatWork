@@ -51,12 +51,13 @@ function mintMemberClaim(bracket: BracketRecord, rosterMemberId: string) {
   bracket.memberClaims[rosterMemberId] = claimId;
   return claimId;
 }
+import { normalizeContenderInputs } from "@/lib/workquiz/contender-text";
+import { buildMissedVotes, recordCloseRoster } from "@/lib/workquiz/missed-votes";
 import {
   addHours,
   hashValue,
   isoDate,
   nextPowerOfTwo,
-  normalizeContenderInputs,
   shuffle,
   slugify,
 } from "@/lib/workquiz/utils";
@@ -630,6 +631,12 @@ function repairUnresolvedTieStates(bracket: BracketRecord, now: Date, nowIso: st
       continue;
     }
 
+    if (round.status === "live") {
+      // Voting has just closed. A tie found below takes this round out of the
+      // main loop in advanceBracket, so the roster is stamped here as well.
+      recordCloseRoster(bracket, round);
+    }
+
     let hasUnresolvedTie = false;
     for (const matchup of round.matchups) {
       if (matchup.winnerEntrantId || !matchupNeedsTieBreaker(matchup)) {
@@ -637,8 +644,15 @@ function repairUnresolvedTieStates(bracket: BracketRecord, now: Date, nowIso: st
       }
 
       hasUnresolvedTie = true;
-      matchup.status = "needs_tiebreaker";
-      matchup.updatedAt = nowIso;
+      // Only stamp a matchup when it actually changes. This runs on every
+      // scheduler tick; stamping "now" each time made a tournament waiting on
+      // a tiebreak look changed every minute, so the whole store was
+      // rewritten and every open page told to refresh for as long as the tie
+      // stood.
+      if (matchup.status !== "needs_tiebreaker") {
+        matchup.status = "needs_tiebreaker";
+        matchup.updatedAt = nowIso;
+      }
     }
 
     if (hasUnresolvedTie) {
@@ -660,6 +674,7 @@ function resetBlockedRound(round: RoundRecord, nowIso: string) {
   round.status = "upcoming";
   delete round.roundStartPingClaimedAt;
   delete round.roundStartPingedAt;
+  delete round.closeRoster;
 
   for (const matchup of round.matchups) {
     const changed =
@@ -735,6 +750,7 @@ export function advanceBracket(bracket: BracketRecord, now = new Date()) {
       continue;
     }
 
+    recordCloseRoster(bracket, round);
     let needsTieBreaker = false;
 
     for (const matchup of round.matchups) {
@@ -745,8 +761,10 @@ export function advanceBracket(bracket: BracketRecord, now = new Date()) {
 
       if (matchupNeedsTieBreaker(matchup)) {
         needsTieBreaker = true;
-        matchup.status = "needs_tiebreaker";
-        matchup.updatedAt = nowIso;
+        if (matchup.status !== "needs_tiebreaker") {
+          matchup.status = "needs_tiebreaker";
+          matchup.updatedAt = nowIso;
+        }
         continue;
       }
 
@@ -1752,6 +1770,7 @@ export function buildSnapshot(
     currentRoundRosterStatuses,
     adminHistory: options?.includeAdminUrl ? options.adminHistory ?? [] : undefined,
     voteWatch: options?.includeAdminUrl ? buildVoteWatch(bracket) : undefined,
+    missedVotes: options?.includeAdminUrl ? buildMissedVotes(bracket, rosterAliases) : undefined,
   };
 }
 

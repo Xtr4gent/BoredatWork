@@ -91,6 +91,11 @@ export interface RoundRecord {
   status: RoundStatus;
   roundStartPingClaimedAt?: string;
   roundStartPingedAt?: string;
+  /**
+   * Who was on the roster and who was marked away when this round's voting
+   * closed. Missing on rounds that closed before this was recorded.
+   */
+  closeRoster?: { memberIds: string[]; awayIds: string[] };
   matchups: MatchupRecord[];
 }
 
@@ -280,6 +285,20 @@ export interface BracketSnapshot {
   voteWatch?: VoteWatchSnapshot;
   /** Admin only: the last restart or shut down, if it can still be undone. */
   undo?: { action: BracketUndoAction; at: string } | null;
+  /** Admin only: per finished round, who could vote and didn't finish. Newest round first. */
+  missedVotes?: MissedVotesRound[];
+}
+
+export interface MissedVotesRound {
+  roundNumber: number;
+  roundLabel: string;
+  /** False when the round closed before away lists were kept: uses who is away now. */
+  awayRecorded: boolean;
+  /** People who counted for this round: not away, or away but finished voting. */
+  couldVote: number;
+  /** People left out because they were away and hadn't finished. */
+  awayCount: number;
+  missed: Array<{ rosterMemberId: string; name: string; votesCast: number; votesPossible: number }>;
 }
 
 export type VoteWatchSeverity = "high" | "medium" | "low";

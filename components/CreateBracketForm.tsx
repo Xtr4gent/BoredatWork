@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import type { BracketKind, BracketSnapshot, EntrantInput, SeedingMode } from "@/lib/workquiz/types";
-import { parseContendersFromText, parseEntrantsFromText } from "@/lib/workquiz/utils";
+import { parseContendersFromText, parseEntrantsFromText } from "@/lib/workquiz/contender-text";
 
 const LAST_ROSTER_STORAGE_KEY = "workquiz:last-admin-roster";
 const LAST_TITLE_STORAGE_KEY = "workquiz:last-admin-title";

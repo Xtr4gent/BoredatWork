@@ -1640,6 +1640,56 @@ export function BracketClient(props: BracketClientProps) {
             </div>
           ) : null}
 
+          {adminSnapshot.missedVotes ? (
+            <div className="bw-card">
+              <div className="bw-card-title">Who missed a round</div>
+              <p className="bw-muted">
+                For each finished round: the people who could vote and didn&apos;t finish. Anyone marked away when the
+                round closed is left out.
+              </p>
+              {adminSnapshot.missedVotes.length ? (
+                adminSnapshot.missedVotes.map((round) => (
+                  <div className="bw-missed-round" key={round.roundNumber}>
+                    <div className="bw-missed-round-head">
+                      <strong>{round.roundLabel}</strong>
+                      <div className="bw-tag-row">
+                        <span className={round.missed.length ? "bw-tag bw-tag-coral" : "bw-tag bw-tag-lime"}>
+                          {round.missed.length ? `${round.missed.length} missed` : "Everyone voted"}
+                        </span>
+                        <span className="bw-tag bw-tag-muted">
+                          {round.couldVote - round.missed.length} of {round.couldVote} finished
+                        </span>
+                        {round.awayCount ? <span className="bw-tag bw-tag-muted">{round.awayCount} away</span> : null}
+                      </div>
+                    </div>
+                    {round.missed.length ? (
+                      <div className="bw-roster-grid">
+                        {round.missed.map((member) => (
+                          <div className="bw-roster-chip pending" key={member.rosterMemberId}>
+                            <span className="bw-chip-avatar pending-av">{member.name.slice(0, 1).toUpperCase()}</span>
+                            <span className="bw-chip-name">{member.name}</span>
+                            <span className="bw-chip-status waiting">
+                              {member.votesCast === 0
+                                ? "No votes"
+                                : `${member.votesCast} of ${member.votesPossible}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {!round.awayRecorded ? (
+                      <p className="bw-muted bw-missed-round-note">
+                        This round closed before away lists were kept, so it uses who is marked away right now.
+                      </p>
+                    ) : null}
+                  </div>
+                ))
+              ) : (
+                <p className="bw-muted">No round has finished yet.</p>
+              )}
+            </div>
+          ) : null}
+
           <div className="bw-card">
             <div className="bw-card-header-row">
               <div className="bw-card-title">Who has voted</div>
