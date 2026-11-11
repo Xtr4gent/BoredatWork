@@ -15,6 +15,7 @@ import {
   VoterEventType,
 } from "@/lib/workquiz/types";
 import { AdminTopNav } from "@/components/AdminTopNav";
+import { copyText, namesForClipboard } from "@/lib/workquiz/copy-names";
 import {
   ADMIN_SECTION_LABELS,
   ADMIN_STATUS_TAG,
@@ -258,6 +259,49 @@ function renderEntrantImage(
       // unquoted url() early and the picture silently disappears.
       style={{ backgroundImage: `url(${JSON.stringify(entrant.imageUrl)})` }}
     />
+  );
+}
+
+/** Puts a list of names on the clipboard, ready to paste into a chat message. */
+function CopyNamesButton({ label, names }: { label: string; names: string[] }) {
+  // `copied` keeps how many names went to the clipboard. The list can change
+  // under a live refresh while the message is still showing.
+  const [outcome, setOutcome] = useState<{ copied: number } | "failed" | null>(null);
+  const resetTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (resetTimer.current !== null) {
+        window.clearTimeout(resetTimer.current);
+      }
+    },
+    [],
+  );
+
+  async function copy() {
+    const copiedNames = names;
+    const copied = await copyText(namesForClipboard(copiedNames));
+    setOutcome(copied ? { copied: copiedNames.length } : "failed");
+    if (resetTimer.current !== null) {
+      window.clearTimeout(resetTimer.current);
+    }
+    resetTimer.current = window.setTimeout(() => {
+      resetTimer.current = null;
+      setOutcome(null);
+    }, 2500);
+  }
+
+  let text = label;
+  if (outcome === "failed") {
+    text = "Couldn't copy";
+  } else if (outcome) {
+    text = `Copied ${outcome.copied} ${outcome.copied === 1 ? "name" : "names"}`;
+  }
+
+  return (
+    <button aria-live="polite" className="bw-btn bw-btn-outline bw-btn-compact" onClick={() => void copy()} type="button">
+      {text}
+    </button>
   );
 }
 
@@ -1586,6 +1630,10 @@ export function BracketClient(props: BracketClientProps) {
 
     if (adminSection === "roster") {
       const awayCount = rosterInspectorStatuses.filter((member) => member.away).length;
+      // Still to vote in the open round. Away people are left out.
+      const pendingNames = rosterInspectorStatuses
+        .filter((member) => !member.hasVoted && !member.away)
+        .map((member) => member.name);
       return (
         <section className="bw-section-panel active">
           <div className="bw-panel-title">Players</div>
@@ -1660,6 +1708,9 @@ export function BracketClient(props: BracketClientProps) {
                           {round.couldVote - round.missed.length} of {round.couldVote} finished
                         </span>
                         {round.awayCount ? <span className="bw-tag bw-tag-muted">{round.awayCount} away</span> : null}
+                        {round.missed.length ? (
+                          <CopyNamesButton label="Copy names" names={round.missed.map((member) => member.name)} />
+                        ) : null}
                       </div>
                     </div>
                     {round.missed.length ? (
@@ -1700,6 +1751,9 @@ export function BracketClient(props: BracketClientProps) {
                   <span className="bw-tag bw-tag-muted">
                     {rosterInspectorStatuses.filter((member) => member.away && !member.hasVoted).length} away
                   </span>
+                ) : null}
+                {adminCurrentRound?.status === "live" && pendingNames.length ? (
+                  <CopyNamesButton label="Copy who hasn't voted" names={pendingNames} />
                 ) : null}
               </div>
             </div>

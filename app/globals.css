@@ -1475,6 +1475,11 @@ button {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.bw-btn-compact {
+  font-size: 11px;
+  padding: 5px 10px;
+}
+
 .bw-btn-danger {
   border: 1px solid rgba(255, 58, 58, 0.25);
   background: rgba(255, 58, 58, 0.1);

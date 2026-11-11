@@ -112,6 +112,17 @@ export default async function AdminPage({
               </div>
             )}
 
+            <div className="bw-card-title bw-tournament-group">Backup</div>
+            <div className="bw-card bw-card-header-row">
+              <p className="bw-muted">
+                Save a copy of everything (every tournament, vote and name pick) as one file on this computer. Keep the
+                file private. Download a fresh one now and then; it&apos;s the only copy outside the database.
+              </p>
+              <a className="bw-btn bw-btn-outline" download href="/api/admin/backup">
+                Download backup
+              </a>
+            </div>
+
             <div className="bw-card-title bw-tournament-group">Admin sign-in</div>
             <div className="bw-card bw-card-header-row">
               <p className="bw-muted">
