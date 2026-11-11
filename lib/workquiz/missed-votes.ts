@@ -20,6 +20,11 @@ export function recordCloseRoster(bracket: BracketRecord, round: RoundRecord) {
  *
  * Rounds that closed before close rosters were recorded fall back to the
  * current roster and who is away now (`awayRecorded: false`).
+ *
+ * Shutting a tournament down marks its open and not-yet-opened rounds
+ * "closed" too, although nobody could finish voting in them. Those rounds
+ * never get a close roster, so in a shut-down tournament only rounds that
+ * have one are reported.
  */
 export function buildMissedVotes(
   bracket: BracketRecord,
@@ -30,6 +35,10 @@ export function buildMissedVotes(
 
   for (const round of bracket.rounds) {
     if (round.status !== "closed" && round.status !== "tiebreaker") {
+      continue;
+    }
+
+    if (bracket.status === "disabled" && !round.closeRoster) {
       continue;
     }
 

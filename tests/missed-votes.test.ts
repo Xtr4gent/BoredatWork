@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { POST as availabilityRoute } from "@/app/api/admin/[adminToken]/roster/availability/route";
 import {
+  addRosterMembers,
   advanceBracket,
   advanceReadyBrackets,
   buildPublicSnapshot,
   buildSnapshot,
   createBracket,
+  disableBracket,
 } from "@/lib/workquiz/bracket";
 import { subscribe } from "@/lib/workquiz/realtime";
 import { ensureStore, readStore, updateStore, writeStore } from "@/lib/workquiz/store";
@@ -289,4 +292,99 @@ test("a later round still lists its own no-shows after round one", async () => {
       [1, []],
     ],
   );
+});
+
+/** Round one's time is up, but no scheduler tick has closed it yet. */
+async function expireRoundOneWithoutTick() {
+  return mutate((bracket) => {
+    bracket.rounds[0].endsAt = new Date(Date.now() - 1000).toISOString();
+    assert.equal(bracket.rounds[0].status, "live");
+  });
+}
+
+test("marking someone away after a round ended, before the next tick, doesn't excuse them", async () => {
+  await liveTournament();
+  await mutate((bracket) => {
+    vote(bracket, "Gabe", "AA");
+    vote(bracket, "Alex", "AA");
+    vote(bracket, "Jordan", "AA");
+    vote(bracket, "Riley", "AA");
+  });
+  const expired = await expireRoundOneWithoutTick();
+
+  const response = await availabilityRoute(
+    new Request(`https://example.test/api/admin/${expired.id}/roster/availability`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rosterMemberId: memberId(expired, "Sam"), away: true }),
+    }),
+    { params: Promise.resolve({ adminToken: expired.id }) },
+  );
+  assert.equal(response.status, 200);
+
+  const saved = (await readStore()).brackets[0];
+  assert.equal(saved.rounds[0].status, "closed");
+  assert.deepEqual(saved.rounds[0].closeRoster?.awayIds, []);
+  assert.equal(saved.rosterMembers.find((member) => member.name === "Sam")?.away, true);
+
+  const round = buildSnapshot(saved, { includeAdminUrl: true }).missedVotes![0];
+  assert.equal(round.awayCount, 0);
+  assert.deepEqual(
+    round.missed.map((member) => member.name),
+    ["Sam"],
+  );
+});
+
+test("a player added after a round ended, before the next tick, isn't blamed for it", async () => {
+  await liveTournament();
+  await mutate((bracket) => {
+    for (const name of roster) {
+      vote(bracket, name, "AA");
+    }
+  });
+  const expired = await expireRoundOneWithoutTick();
+
+  const updated = await addRosterMembers({ adminToken: expired.id, names: ["Late Joiner"] });
+  assert.equal(updated.rounds[0].status, "closed");
+  assert.equal(updated.rounds[0].closeRoster?.memberIds.length, roster.length);
+
+  const round = buildSnapshot(updated, { includeAdminUrl: true }).missedVotes![0];
+  assert.equal(round.couldVote, roster.length);
+  assert.deepEqual(round.missed, []);
+});
+
+test("shutting down doesn't blame anyone for rounds that never finished", async () => {
+  const created = await liveTournament();
+  await mutate((bracket) => {
+    vote(bracket, "Gabe", "AA");
+    vote(bracket, "Alex", "AA");
+    vote(bracket, "Jordan", "AA");
+  });
+  // Round one closes properly; round two has its contenders but hasn't opened.
+  await advanceReadyBrackets(afterRoundOne(created));
+
+  const shutDown = await mutate((bracket) => {
+    const final = bracket.rounds[1].matchups[0];
+    assert.ok(final.entrantAId && final.entrantBId, "the final has both contenders");
+    assert.notEqual(bracket.rounds[1].status, "closed");
+    disableBracket(bracket);
+    assert.equal(bracket.rounds[1].status, "closed");
+  });
+
+  const missed = buildSnapshot(shutDown, { includeAdminUrl: true }).missedVotes!;
+  assert.deepEqual(
+    missed.map((round) => [round.roundNumber, round.missed.map((member) => member.name)]),
+    [[1, ["Riley", "Sam"]]],
+  );
+});
+
+test("a round cut short by a shut down isn't reported", async () => {
+  await liveTournament();
+  const shutDown = await mutate((bracket) => {
+    vote(bracket, "Gabe", "AA");
+    disableBracket(bracket);
+  });
+
+  assert.equal(shutDown.rounds[0].status, "closed");
+  assert.deepEqual(buildSnapshot(shutDown, { includeAdminUrl: true }).missedVotes, []);
 });

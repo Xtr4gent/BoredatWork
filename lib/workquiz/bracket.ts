@@ -1334,7 +1334,14 @@ export function setRosterAvailability(
   bracket: BracketRecord,
   target: { rosterMemberIds: string[] } | "everyone",
   away: boolean,
+  now = new Date(),
 ) {
+  // Close any round whose time is already up before touching who is away.
+  // Rounds are otherwise closed by the next scheduler tick, and the roster
+  // kept for a finished round is taken at that moment: a switch flipped in
+  // between would be written into a round it came too late for.
+  advanceBracket(bracket, now);
+
   const ids =
     target === "everyone" ? bracket.rosterMembers.map((member) => member.id) : target.rosterMemberIds;
   let changed = 0;
@@ -1423,6 +1430,10 @@ export async function addRosterMembers(params: { adminToken: string; names: stri
       throw new Error("Bracket not found.");
     }
 
+    // Close any round whose time is already up first, so a player added now
+    // is not counted in (and blamed for) a round that had already ended.
+    advanceBracket(bracket, new Date());
+
     if (bracket.status !== "live") {
       throw new Error("Roster members can only be added while the tournament is live.");
     }
@@ -1459,6 +1470,8 @@ export async function addRosterMembers(params: { adminToken: string; names: stri
   }
 
   publish(updated.publicToken, { type: "roster-updated" });
+  // The advance above may have opened the next round.
+  schedulePendingRoundStartPings();
   return updated;
 }
 

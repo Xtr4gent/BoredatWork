@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { buildAdminSnapshot, matchesAdminKey, setRosterAvailability } from "@/lib/workquiz/bracket";
 import { publish } from "@/lib/workquiz/realtime";
+import { schedulePendingRoundStartPings } from "@/lib/workquiz/round-start-ping";
 import { updateStore } from "@/lib/workquiz/store";
 
 /**
@@ -63,5 +64,7 @@ export async function POST(
 
   // Open /voting pages refresh, so a switched-off player sees it straight away.
   publish(updatedBracket.publicToken, { type: "roster-updated" });
+  // setRosterAvailability closes any round whose time was up, which can open the next one.
+  schedulePendingRoundStartPings();
   return NextResponse.json(await buildAdminSnapshot(updatedBracket, adminToken));
 }
