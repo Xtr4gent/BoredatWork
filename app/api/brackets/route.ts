@@ -4,7 +4,7 @@ import { adminWorkspacePath } from "@/lib/workquiz/admin-sections";
 import { createBracket, markBracketAsCurrentPublic } from "@/lib/workquiz/bracket";
 import { DEFAULT_ROUND_DURATION_HOURS } from "@/lib/workquiz/constants";
 import type { BracketKind, EntrantInput } from "@/lib/workquiz/types";
-import { normalizeContenderInputs, parseContendersFromText } from "@/lib/workquiz/utils";
+import { normalizeContenderInputs, parseContendersFromText } from "@/lib/workquiz/contender-text";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {

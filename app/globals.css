@@ -2157,6 +2157,26 @@ button {
   gap: 8px;
 }
 
+.bw-missed-round {
+  margin-top: 14px;
+  border-top: 1px solid var(--bw-border);
+  padding-top: 14px;
+}
+
+.bw-missed-round-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.bw-missed-round-note {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
 .bw-roster-chip-btn {
   width: 100%;
   border-radius: 10px;

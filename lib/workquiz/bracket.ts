@@ -51,12 +51,13 @@ function mintMemberClaim(bracket: BracketRecord, rosterMemberId: string) {
   bracket.memberClaims[rosterMemberId] = claimId;
   return claimId;
 }
+import { normalizeContenderInputs } from "@/lib/workquiz/contender-text";
+import { buildMissedVotes, recordCloseRoster } from "@/lib/workquiz/missed-votes";
 import {
   addHours,
   hashValue,
   isoDate,
   nextPowerOfTwo,
-  normalizeContenderInputs,
   shuffle,
   slugify,
 } from "@/lib/workquiz/utils";
@@ -630,6 +631,12 @@ function repairUnresolvedTieStates(bracket: BracketRecord, now: Date, nowIso: st
       continue;
     }
 
+    if (round.status === "live") {
+      // Voting has just closed. A tie found below takes this round out of the
+      // main loop in advanceBracket, so the roster is stamped here as well.
+      recordCloseRoster(bracket, round);
+    }
+
     let hasUnresolvedTie = false;
     for (const matchup of round.matchups) {
       if (matchup.winnerEntrantId || !matchupNeedsTieBreaker(matchup)) {
@@ -637,8 +644,15 @@ function repairUnresolvedTieStates(bracket: BracketRecord, now: Date, nowIso: st
       }
 
       hasUnresolvedTie = true;
-      matchup.status = "needs_tiebreaker";
-      matchup.updatedAt = nowIso;
+      // Only stamp a matchup when it actually changes. This runs on every
+      // scheduler tick; stamping "now" each time made a tournament waiting on
+      // a tiebreak look changed every minute, so the whole store was
+      // rewritten and every open page told to refresh for as long as the tie
+      // stood.
+      if (matchup.status !== "needs_tiebreaker") {
+        matchup.status = "needs_tiebreaker";
+        matchup.updatedAt = nowIso;
+      }
     }
 
     if (hasUnresolvedTie) {
@@ -660,6 +674,7 @@ function resetBlockedRound(round: RoundRecord, nowIso: string) {
   round.status = "upcoming";
   delete round.roundStartPingClaimedAt;
   delete round.roundStartPingedAt;
+  delete round.closeRoster;
 
   for (const matchup of round.matchups) {
     const changed =
@@ -735,6 +750,7 @@ export function advanceBracket(bracket: BracketRecord, now = new Date()) {
       continue;
     }
 
+    recordCloseRoster(bracket, round);
     let needsTieBreaker = false;
 
     for (const matchup of round.matchups) {
@@ -745,8 +761,10 @@ export function advanceBracket(bracket: BracketRecord, now = new Date()) {
 
       if (matchupNeedsTieBreaker(matchup)) {
         needsTieBreaker = true;
-        matchup.status = "needs_tiebreaker";
-        matchup.updatedAt = nowIso;
+        if (matchup.status !== "needs_tiebreaker") {
+          matchup.status = "needs_tiebreaker";
+          matchup.updatedAt = nowIso;
+        }
         continue;
       }
 
@@ -1316,16 +1334,28 @@ export function setRosterAvailability(
   bracket: BracketRecord,
   target: { rosterMemberIds: string[] } | "everyone",
   away: boolean,
+  now = new Date(),
 ) {
+  // Refuse a bad request before changing anything: the route saves whatever
+  // this function has done so far, even when it throws.
   const ids =
     target === "everyone" ? bracket.rosterMembers.map((member) => member.id) : target.rosterMemberIds;
-  let changed = 0;
-  for (const id of ids) {
+  const members = ids.map((id) => {
     const member = bracket.rosterMembers.find((entry) => entry.id === id);
     if (!member) {
       throw new Error("Roster member not found.");
     }
+    return member;
+  });
 
+  // Close any round whose time is already up before touching who is away.
+  // Rounds are otherwise closed by the next scheduler tick, and the roster
+  // kept for a finished round is taken at that moment: a switch flipped in
+  // between would be written into a round it came too late for.
+  advanceBracket(bracket, now);
+
+  let changed = 0;
+  for (const member of members) {
     if (Boolean(member.away) === away) {
       continue;
     }
@@ -1405,6 +1435,10 @@ export async function addRosterMembers(params: { adminToken: string; names: stri
       throw new Error("Bracket not found.");
     }
 
+    // Close any round whose time is already up first, so a player added now
+    // is not counted in (and blamed for) a round that had already ended.
+    advanceBracket(bracket, new Date());
+
     if (bracket.status !== "live") {
       throw new Error("Roster members can only be added while the tournament is live.");
     }
@@ -1441,6 +1475,8 @@ export async function addRosterMembers(params: { adminToken: string; names: stri
   }
 
   publish(updated.publicToken, { type: "roster-updated" });
+  // The advance above may have opened the next round.
+  schedulePendingRoundStartPings();
   return updated;
 }
 
@@ -1752,6 +1788,7 @@ export function buildSnapshot(
     currentRoundRosterStatuses,
     adminHistory: options?.includeAdminUrl ? options.adminHistory ?? [] : undefined,
     voteWatch: options?.includeAdminUrl ? buildVoteWatch(bracket) : undefined,
+    missedVotes: options?.includeAdminUrl ? buildMissedVotes(bracket, rosterAliases) : undefined,
   };
 }
 
