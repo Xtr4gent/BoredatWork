@@ -20,6 +20,13 @@ Production must use Postgres persistence. Set `DATABASE_URL` on Railway before d
 
 Local development and tests can still use `data/workquiz.json` when `DATABASE_URL` is not set.
 
+## Backups
+
+- **By hand:** a signed-in admin can download everything from the Backup card on `/admin` (`GET /api/admin/backup`).
+- **Nightly pull:** `GET /api/backup/export` returns the same file to a request signed with an Ed25519 key. Set `BACKUP_PUBLIC_KEY` to the base64 SPKI body of the public key (`openssl pkey -in KEY -pubout -outform DER | base64 -w0`). Without it the address answers 404. The caller sends `x-backup-timestamp` (Unix seconds) and `x-backup-signature` (base64 signature over `boredatwork-backup-export:TIMESTAMP`), valid for five minutes. The private key never goes near this app.
+
+The file is `{ kind, version, exportedAt, store }`. `store` is exactly what the `workquiz_store` row holds.
+
 ## Round Start Pings
 
 Set `WORKQUIZ_ROUND_START_PING_URL` to send a GET ping when a public tournament round starts. The app records round ping state in the bracket store so status checks and redeploys do not spam repeated messages.
