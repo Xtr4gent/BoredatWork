@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
 
+// @ts-expect-error Next bundles this copy of path-to-regexp without type declarations.
+import { pathToRegexp as untypedPathToRegexp } from "next/dist/compiled/path-to-regexp";
+
 import { GET as exportRoute } from "@/app/api/backup/export/route";
 import { BACKUP_SIGNED_PREFIX, verifyBackupRequest } from "@/lib/workquiz/backup-export";
 import { createBracket } from "@/lib/workquiz/bracket";
 import { ensureStore, readStore, writeStore } from "@/lib/workquiz/store";
 import { config as proxyConfig } from "@/proxy";
+
+const pathToRegexp = untypedPathToRegexp as (pattern: string) => RegExp;
 
 function keyPair() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
@@ -163,8 +168,15 @@ test("only an Ed25519 key is accepted as the public key", () => {
 test("the export address is outside the admin sign-in wall", async () => {
   // It has no admin session; if the proxy matched it, the nightly pull would
   // be sent to the sign-in page. Its own signature check is the lock.
-  for (const pattern of proxyConfig.matcher) {
-    assert.equal(pattern.startsWith("/api/backup"), false, pattern);
-  }
+  // Checked with the same matcher Next compiles the rules with, so a broad
+  // rule such as "/api/:path*" is caught too.
+  const matched = (path: string) => proxyConfig.matcher.some((pattern) => pathToRegexp(pattern).test(path));
+
+  assert.equal(matched("/api/backup/export"), false);
+  // The check itself works: these are behind the wall.
+  assert.equal(matched("/api/admin/backup"), true);
+  assert.equal(matched("/admin"), true);
+  assert.equal(pathToRegexp("/api/:path*").test("/api/backup/export"), true);
+
   await writeStore({ brackets: [] });
 });
