@@ -388,3 +388,23 @@ test("a round cut short by a shut down isn't reported", async () => {
   assert.equal(shutDown.rounds[0].status, "closed");
   assert.deepEqual(buildSnapshot(shutDown, { includeAdminUrl: true }).missedVotes, []);
 });
+
+test("a refused away change leaves an expired round for the scheduler to close", async () => {
+  await liveTournament();
+  const expired = await expireRoundOneWithoutTick();
+  const before = JSON.stringify(await readStore());
+
+  const response = await availabilityRoute(
+    new Request(`https://example.test/api/admin/${expired.id}/roster/availability`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rosterMemberId: "no-such-player", away: true }),
+    }),
+    { params: Promise.resolve({ adminToken: expired.id }) },
+  );
+
+  assert.equal(response.status, 400);
+  // Nothing was advanced or saved, so the next tick still sees the change
+  // and sends its refresh and round-start notice.
+  assert.equal(JSON.stringify(await readStore()), before);
+});

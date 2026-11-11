@@ -1336,21 +1336,26 @@ export function setRosterAvailability(
   away: boolean,
   now = new Date(),
 ) {
+  // Refuse a bad request before changing anything: the route saves whatever
+  // this function has done so far, even when it throws.
+  const ids =
+    target === "everyone" ? bracket.rosterMembers.map((member) => member.id) : target.rosterMemberIds;
+  const members = ids.map((id) => {
+    const member = bracket.rosterMembers.find((entry) => entry.id === id);
+    if (!member) {
+      throw new Error("Roster member not found.");
+    }
+    return member;
+  });
+
   // Close any round whose time is already up before touching who is away.
   // Rounds are otherwise closed by the next scheduler tick, and the roster
   // kept for a finished round is taken at that moment: a switch flipped in
   // between would be written into a round it came too late for.
   advanceBracket(bracket, now);
 
-  const ids =
-    target === "everyone" ? bracket.rosterMembers.map((member) => member.id) : target.rosterMemberIds;
   let changed = 0;
-  for (const id of ids) {
-    const member = bracket.rosterMembers.find((entry) => entry.id === id);
-    if (!member) {
-      throw new Error("Roster member not found.");
-    }
-
+  for (const member of members) {
     if (Boolean(member.away) === away) {
       continue;
     }
