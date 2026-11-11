@@ -264,7 +264,9 @@ function renderEntrantImage(
 
 /** Puts a list of names on the clipboard, ready to paste into a chat message. */
 function CopyNamesButton({ label, names }: { label: string; names: string[] }) {
-  const [outcome, setOutcome] = useState<"idle" | "copied" | "failed">("idle");
+  // `copied` keeps how many names went to the clipboard. The list can change
+  // under a live refresh while the message is still showing.
+  const [outcome, setOutcome] = useState<{ copied: number } | "failed" | null>(null);
   const resetTimer = useRef<number | null>(null);
 
   useEffect(
@@ -277,22 +279,23 @@ function CopyNamesButton({ label, names }: { label: string; names: string[] }) {
   );
 
   async function copy() {
-    const copied = await copyText(namesForClipboard(names));
-    setOutcome(copied ? "copied" : "failed");
+    const copiedNames = names;
+    const copied = await copyText(namesForClipboard(copiedNames));
+    setOutcome(copied ? { copied: copiedNames.length } : "failed");
     if (resetTimer.current !== null) {
       window.clearTimeout(resetTimer.current);
     }
     resetTimer.current = window.setTimeout(() => {
       resetTimer.current = null;
-      setOutcome("idle");
+      setOutcome(null);
     }, 2500);
   }
 
   let text = label;
-  if (outcome === "copied") {
-    text = `Copied ${names.length} ${names.length === 1 ? "name" : "names"}`;
-  } else if (outcome === "failed") {
+  if (outcome === "failed") {
     text = "Couldn't copy";
+  } else if (outcome) {
+    text = `Copied ${outcome.copied} ${outcome.copied === 1 ? "name" : "names"}`;
   }
 
   return (
