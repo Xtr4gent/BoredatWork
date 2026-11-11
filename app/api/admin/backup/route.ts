@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { ADMIN_AUTH, isAdminSessionValueCurrent } from "@/lib/workquiz/admin-auth";
-import { readStore } from "@/lib/workquiz/store";
+import { buildBackupBody } from "@/lib/workquiz/backup-export";
 
 export const dynamic = "force-dynamic";
 
@@ -22,13 +22,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Admin authentication required." }, { status: 401 });
   }
 
-  const exportedAt = new Date().toISOString();
-  const body = JSON.stringify({ kind: "boredatwork-backup", version: 1, exportedAt, store: await readStore() });
+  const backup = await buildBackupBody();
 
-  return new NextResponse(body, {
+  return new NextResponse(backup.body, {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Content-Disposition": `attachment; filename="boredatwork-backup-${exportedAt.slice(0, 10)}.json"`,
+      "Content-Disposition": `attachment; filename="boredatwork-backup-${backup.exportedAt.slice(0, 10)}.json"`,
       "Cache-Control": "no-store",
     },
   });
